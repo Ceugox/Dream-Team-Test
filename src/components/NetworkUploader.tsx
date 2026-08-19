@@ -18,44 +18,57 @@ export function NetworkUploader() {
     calendar: "pending",
   });
   const [metrics, setMetrics] = useState({ peopleDiscovered: 0, uniquePeople: 0, profilesEnriched: 0, strongRelationships: 0 });
+  const [error, setError] = useState<string | null>(null);
 
   async function startMapping() {
     setRunning(true);
+    setError(null);
     const registry = new Map<string, Person>();
 
-    const formData = new FormData();
-    if (file) formData.append("file", file);
+    try {
+      const formData = new FormData();
+      if (file) formData.append("file", file);
 
-    const res = await fetch("/api/network", { method: "POST", body: formData });
-    const reader = res.body!.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
+      const res = await fetch("/api/network", { method: "POST", body: formData });
+      if (!res.ok || !res.body) {
+        const message = await res.text().catch(() => "");
+        throw new Error(message || `Request failed with status ${res.status}`);
+      }
 
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n\n");
-      buffer = lines.pop() ?? "";
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
 
-      for (const line of lines) {
-        if (!line.startsWith("data: ")) continue;
-        const event: PipelineEvent = JSON.parse(line.slice(6));
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n\n");
+        buffer = lines.pop() ?? "";
 
-        if (event.type === "source.status") {
-          setStatuses((prev) => ({ ...prev, [event.source]: event.state }));
-        } else if (event.type === "network.person_discovered") {
-          registry.set(event.person.id, event.person);
-        } else if (event.type === "network.person_merged") {
-          registry.delete(event.mergedId);
-          registry.set(event.survivorId, event.mergedPerson);
-        } else if (event.type === "network.metrics_updated") {
-          setMetrics(event);
-        } else if (event.type === "network.completed") {
-          sessionStorage.setItem("referral-copilot:people", JSON.stringify(Array.from(registry.values())));
-          router.push("/network");
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const event: PipelineEvent = JSON.parse(line.slice(6));
+
+          if (event.type === "source.status") {
+            setStatuses((prev) => ({ ...prev, [event.source]: event.state }));
+          } else if (event.type === "network.person_discovered") {
+            registry.set(event.person.id, event.person);
+          } else if (event.type === "network.person_merged") {
+            registry.delete(event.mergedId);
+            registry.set(event.survivorId, event.mergedPerson);
+          } else if (event.type === "network.metrics_updated") {
+            setMetrics(event);
+          } else if (event.type === "network.completed") {
+            sessionStorage.setItem("referral-copilot:people", JSON.stringify(Array.from(registry.values())));
+            router.push("/network");
+          }
         }
       }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong mapping your network.");
+    } finally {
+      setRunning(false);
     }
   }
 
@@ -79,6 +92,8 @@ export function NetworkUploader() {
       >
         {running ? "Mapping your professional network..." : "Map my professional network"}
       </button>
+
+      {error && <p className="max-w-lg text-center text-sm text-red-600">{error}</p>}
 
       {running && (
         <div className="flex flex-col items-center gap-4">

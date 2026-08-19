@@ -31,8 +31,15 @@ export function NetworkUploader() {
 
       const res = await fetch("/api/network", { method: "POST", body: formData });
       if (!res.ok || !res.body) {
-        const message = await res.text().catch(() => "");
-        throw new Error(message || `Request failed with status ${res.status}`);
+        const raw = await res.text().catch(() => "");
+        const message = (() => {
+          try {
+            return JSON.parse(raw)?.error as string | undefined;
+          } catch {
+            return undefined;
+          }
+        })();
+        throw new Error(message || raw || `Request failed with status ${res.status}`);
       }
 
       const reader = res.body.getReader();

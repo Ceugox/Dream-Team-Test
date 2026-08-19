@@ -1,4 +1,4 @@
-import type { Person } from "../domain/person";
+import type { Person, RelationshipData } from "../domain/person";
 
 export interface MergeDecision {
   shouldMerge: boolean;
@@ -55,6 +55,34 @@ function dedupeStrings(values: string[]): string[] {
   return Array.from(new Set(values));
 }
 
+function earlierIso(a: string | null, b: string | null): string | null {
+  if (!a) return b;
+  if (!b) return a;
+  return a < b ? a : b;
+}
+
+function laterIso(a: string | null, b: string | null): string | null {
+  if (!a) return b;
+  if (!b) return a;
+  return a > b ? a : b;
+}
+
+function mergeRelationship(a: RelationshipData | null, b: RelationshipData | null): RelationshipData | null {
+  if (!a) return b;
+  if (!b) return a;
+  return {
+    emailsSent: a.emailsSent + b.emailsSent,
+    emailsReceived: a.emailsReceived + b.emailsReceived,
+    meetings: a.meetings + b.meetings,
+    firstInteraction: earlierIso(a.firstInteraction, b.firstInteraction),
+    lastInteraction: laterIso(a.lastInteraction, b.lastInteraction),
+    reciprocity: a.reciprocity ?? b.reciprocity,
+    frequency: a.frequency ?? b.frequency,
+    recency: a.recency ?? b.recency,
+    contactSignal: a.contactSignal ?? b.contactSignal,
+  };
+}
+
 export function mergePeople(survivor: Person, mergedIn: Person): Person {
   return {
     ...survivor,
@@ -70,6 +98,6 @@ export function mergePeople(survivor: Person, mergedIn: Person): Person {
     education: dedupeStrings([...survivor.education, ...mergedIn.education]),
     skills: dedupeStrings([...survivor.skills, ...mergedIn.skills]),
     sources: dedupeStrings([...survivor.sources, ...mergedIn.sources]),
-    relationship: survivor.relationship ?? mergedIn.relationship,
+    relationship: mergeRelationship(survivor.relationship, mergedIn.relationship),
   };
 }

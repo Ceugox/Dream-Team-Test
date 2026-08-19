@@ -44,3 +44,29 @@ test("mergePeople unions sources and arrays without duplicates", () => {
   expect(result.skills.sort()).toEqual(["aws", "python"]);
   expect(result.emails).toEqual(["bruno@gmail.com"]);
 });
+
+test("mergePeople combines relationship data from both records instead of dropping one", () => {
+  const survivor = createPerson({
+    id: "1",
+    name: "Bruno Carvalho",
+    relationship: {
+      emailsSent: 14, emailsReceived: 18, meetings: 0,
+      firstInteraction: null, lastInteraction: "2026-07-13T00:00:00Z",
+      reciprocity: null, frequency: null, recency: null, contactSignal: null,
+    },
+  });
+  const mergedIn = createPerson({
+    id: "2",
+    name: "Bruno C.",
+    relationship: {
+      emailsSent: 0, emailsReceived: 0, meetings: 5,
+      firstInteraction: null, lastInteraction: "2026-07-20T00:00:00Z",
+      reciprocity: null, frequency: null, recency: null, contactSignal: null,
+    },
+  });
+  const result = mergePeople(survivor, mergedIn);
+  expect(result.relationship?.emailsSent).toBe(14);
+  expect(result.relationship?.emailsReceived).toBe(18);
+  expect(result.relationship?.meetings).toBe(5);
+  expect(result.relationship?.lastInteraction).toBe("2026-07-20T00:00:00Z");
+});

@@ -2327,10 +2327,16 @@ export async function POST(req: Request) {
 
 Run: `npm run dev -- -p 3100 &` (background), then:
 ```bash
-curl -N -X POST http://localhost:3100/api/network | head -c 500
+curl -N -X POST -F "noop=1" http://localhost:3100/api/network | head -c 500
 ```
 Expected: a stream of `data: {"type":"source.status",...}` lines starting to arrive
 immediately (not buffered until the end). Stop the dev server afterward.
+
+Note: the `-F "noop=1"` is required so curl sends a `Content-Type: multipart/form-data`
+header — a bodyless `curl -X POST` has no Content-Type at all and `req.formData()` throws
+500. A real browser `fetch(url, {body: formData})` always sets this header correctly, even
+for an empty `FormData`, so this is a verification-command detail only, not a route bug
+(confirmed during Task 18's review with an independent Node Fetch API reproduction).
 
 - [ ] **Step 3: Commit**
 

@@ -13,6 +13,7 @@ export class GmailSource implements NetworkSource {
       yield createPerson({
         id: `gmail:${signal.email}`,
         name: signal.name,
+        linkedinUrl: signal.linkedinUrl ?? null,
         emails: [signal.email],
         sources: ["gmail"],
         relationship: {
@@ -38,6 +39,7 @@ export class CalendarSource implements NetworkSource {
       yield createPerson({
         id: `calendar:${signal.email}`,
         name: signal.name,
+        linkedinUrl: signal.linkedinUrl ?? null,
         emails: [signal.email],
         sources: ["calendar"],
         relationship: {
@@ -63,6 +65,7 @@ export class ContactsSource implements NetworkSource {
       yield createPerson({
         id: `contacts:${contact.email ?? contact.name}`,
         name: contact.name,
+        linkedinUrl: contact.linkedinUrl ?? null,
         emails: contact.email ? [contact.email] : [],
         phones: contact.phone ? [contact.phone] : [],
         sources: ["contacts"],

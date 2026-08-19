@@ -48,6 +48,7 @@ export function NetworkUploader() {
           registry.set(event.person.id, event.person);
         } else if (event.type === "network.person_merged") {
           registry.delete(event.mergedId);
+          registry.set(event.survivorId, event.mergedPerson);
         } else if (event.type === "network.metrics_updated") {
           setMetrics(event);
         } else if (event.type === "network.completed") {

@@ -48,4 +48,10 @@ test("pipeline discovers, merges duplicates, enriches, and completes even with a
   if (metrics?.type === "network.metrics_updated") {
     expect(metrics.uniquePeople).toBe(2);
   }
+
+  const mergedEvent = merged[0];
+  if (mergedEvent.type === "network.person_merged") {
+    expect(mergedEvent.mergedPerson.linkedinUrl).toBe("https://linkedin.com/in/bruno");
+    expect(mergedEvent.mergedPerson.emails).toContain("bruno@gmail.com");
+  }
 });

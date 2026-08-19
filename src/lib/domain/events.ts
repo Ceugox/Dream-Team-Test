@@ -22,6 +22,7 @@ export interface PersonMergedEvent {
   mergedId: string;
   matchScore: number;
   signalsUsed: string[];
+  mergedPerson: Person;
 }
 
 export interface MetricsUpdatedEvent {

@@ -7,6 +7,7 @@ export interface LinkedInConnectionRaw {
 
 export interface GmailSignalRaw {
   name: string;
+  linkedinUrl?: string;
   email: string;
   emailsSent: number;
   emailsReceived: number;
@@ -15,6 +16,7 @@ export interface GmailSignalRaw {
 
 export interface CalendarSignalRaw {
   name: string;
+  linkedinUrl?: string;
   email: string;
   meetings: number;
   lastMeeting: string;
@@ -24,6 +26,7 @@ export interface ContactRaw {
   name: string;
   email?: string;
   phone?: string;
+  linkedinUrl?: string;
 }
 
 export const DEMO_LINKEDIN_CONNECTIONS: LinkedInConnectionRaw[] = [
@@ -50,19 +53,19 @@ export const DEMO_LINKEDIN_CONNECTIONS: LinkedInConnectionRaw[] = [
 ];
 
 export const DEMO_GMAIL_SIGNALS: GmailSignalRaw[] = [
-  { name: "Bruno Carvalho", email: "bruno.carvalho@gmail.com", emailsSent: 14, emailsReceived: 18, lastInteraction: "2026-07-13" },
-  { name: "Gabriela Lima", email: "gabriela.lima@gmail.com", emailsSent: 6, emailsReceived: 9, lastInteraction: "2026-05-02" },
-  { name: "Lucas Andrade", email: "lucas.andrade@gmail.com", emailsSent: 22, emailsReceived: 25, lastInteraction: "2026-08-01" },
-  { name: "Rafael Nunes", email: "rafael.nunes@gmail.com", emailsSent: 3, emailsReceived: 2, lastInteraction: "2025-12-20" },
+  { name: "Bruno Carvalho", linkedinUrl: "https://linkedin.com/in/bruno-carvalho", email: "bruno.carvalho@gmail.com", emailsSent: 14, emailsReceived: 18, lastInteraction: "2026-07-13" },
+  { name: "Gabriela Lima", linkedinUrl: "https://linkedin.com/in/gabriela-lima", email: "gabriela.lima@gmail.com", emailsSent: 6, emailsReceived: 9, lastInteraction: "2026-05-02" },
+  { name: "Lucas Andrade", linkedinUrl: "https://linkedin.com/in/lucas-andrade", email: "lucas.andrade@gmail.com", emailsSent: 22, emailsReceived: 25, lastInteraction: "2026-08-01" },
+  { name: "Rafael Nunes", linkedinUrl: "https://linkedin.com/in/rafael-nunes", email: "rafael.nunes@gmail.com", emailsSent: 3, emailsReceived: 2, lastInteraction: "2025-12-20" },
 ];
 
 export const DEMO_CALENDAR_SIGNALS: CalendarSignalRaw[] = [
-  { name: "Bruno Carvalho", email: "bruno.carvalho@gmail.com", meetings: 5, lastMeeting: "2026-07-20" },
-  { name: "Lucas Andrade", email: "lucas.andrade@gmail.com", meetings: 8, lastMeeting: "2026-08-05" },
-  { name: "Isabela Duarte", email: "isabela.duarte@gmail.com", meetings: 2, lastMeeting: "2026-03-11" },
+  { name: "Bruno Carvalho", linkedinUrl: "https://linkedin.com/in/bruno-carvalho", email: "bruno.carvalho@gmail.com", meetings: 5, lastMeeting: "2026-07-20" },
+  { name: "Lucas Andrade", linkedinUrl: "https://linkedin.com/in/lucas-andrade", email: "lucas.andrade@gmail.com", meetings: 8, lastMeeting: "2026-08-05" },
+  { name: "Isabela Duarte", linkedinUrl: "https://linkedin.com/in/isabela-duarte", email: "isabela.duarte@gmail.com", meetings: 2, lastMeeting: "2026-03-11" },
 ];
 
 export const DEMO_CONTACTS: ContactRaw[] = [
-  { name: "Bruno Carvalho", email: "bruno.carvalho@gmail.com", phone: "+55 11 90000-0001" },
-  { name: "Karina Fontes", email: "karina.fontes@gmail.com" },
+  { name: "Bruno Carvalho", email: "bruno.carvalho@gmail.com", phone: "+55 11 90000-0001", linkedinUrl: "https://linkedin.com/in/bruno-carvalho" },
+  { name: "Karina Fontes", email: "karina.fontes@gmail.com", linkedinUrl: "https://linkedin.com/in/karina-fontes" },
 ];

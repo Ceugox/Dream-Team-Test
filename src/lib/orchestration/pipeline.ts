@@ -46,6 +46,7 @@ export async function* runPipeline(sources: NetworkSource[]): AsyncGenerator<Pip
           mergedId: enriched.id,
           matchScore: decision.matchScore,
           signalsUsed: decision.signalsUsed,
+          mergedPerson,
         });
         return;
       }

@@ -15,6 +15,10 @@ function enrichFromHeadline(person: Person): Person {
   };
 }
 
+function withRelationshipScore(person: Person): Person {
+  return { ...person, relationshipScore: computeRelationshipScore(person.relationship) };
+}
+
 export async function* runPipeline(sources: NetworkSource[]): AsyncGenerator<PipelineEvent> {
   const budget = new TimeBudget();
   const registry: Person[] = [];
@@ -29,15 +33,26 @@ export async function* runPipeline(sources: NetworkSource[]): AsyncGenerator<Pip
     pendingResolvers = [];
   }
 
+  function currentMetrics(): PipelineEvent {
+    return {
+      type: "network.metrics_updated",
+      peopleDiscovered: discoveredCount,
+      uniquePeople: registry.length,
+      profilesEnriched: registry.filter((p) => p.currentRole || p.currentCompany).length,
+      strongRelationships: registry.filter((p) => (p.relationshipScore ?? 0) >= 0.5).length,
+      elapsedMs: budget.elapsedMs(),
+    };
+  }
+
   function integratePerson(incoming: Person) {
     discoveredCount += 1;
-    const enriched = enrichFromHeadline(incoming);
+    const enriched = withRelationshipScore(enrichFromHeadline(incoming));
     push({ type: "network.person_discovered", person: enriched });
 
     for (const existing of registry) {
       const decision = resolveIdentity(existing, enriched);
       if (decision.shouldMerge) {
-        const mergedPerson = mergePeople(existing, enriched);
+        const mergedPerson = withRelationshipScore(mergePeople(existing, enriched));
         const idx = registry.indexOf(existing);
         registry[idx] = mergedPerson;
         push({
@@ -48,10 +63,12 @@ export async function* runPipeline(sources: NetworkSource[]): AsyncGenerator<Pip
           signalsUsed: decision.signalsUsed,
           mergedPerson,
         });
+        push(currentMetrics());
         return;
       }
     }
     registry.push(enriched);
+    push(currentMetrics());
   }
 
   const sourceRuns = sources.map(async (source) => {
@@ -93,18 +110,7 @@ export async function* runPipeline(sources: NetworkSource[]): AsyncGenerator<Pip
 
   await allDone;
 
-  for (let i = 0; i < registry.length; i++) {
-    registry[i] = { ...registry[i], relationshipScore: computeRelationshipScore(registry[i].relationship) };
-  }
-
-  yield {
-    type: "network.metrics_updated",
-    peopleDiscovered: discoveredCount,
-    uniquePeople: registry.length,
-    profilesEnriched: registry.filter((p) => p.currentRole || p.currentCompany).length,
-    strongRelationships: registry.filter((p) => (p.relationshipScore ?? 0) >= 0.5).length,
-    elapsedMs: budget.elapsedMs(),
-  };
+  yield currentMetrics();
 
   yield { type: "network.completed", elapsedMs: budget.elapsedMs() };
 }

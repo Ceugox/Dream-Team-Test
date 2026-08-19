@@ -11,6 +11,14 @@ test("same linkedin URL merges with near-certain confidence", () => {
   expect(decision.signalsUsed).toContain("linkedinUrl");
 });
 
+test("linkedin URL match is robust to protocol, www, trailing slash, and case", () => {
+  const a = createPerson({ id: "1", name: "Bruno Carvalho", linkedinUrl: "https://www.linkedin.com/in/Bruno-Carvalho/" });
+  const b = createPerson({ id: "2", name: "Bruno C.", linkedinUrl: "https://linkedin.com/in/bruno-carvalho" });
+  const decision = resolveIdentity(a, b);
+  expect(decision.shouldMerge).toBe(true);
+  expect(decision.signalsUsed).toContain("linkedinUrl");
+});
+
 test("same email merges with near-certain confidence", () => {
   const a = createPerson({ id: "1", name: "Bruno Carvalho", emails: ["bruno@gmail.com"] });
   const b = createPerson({ id: "2", name: "Bruno", emails: ["bruno@gmail.com"] });

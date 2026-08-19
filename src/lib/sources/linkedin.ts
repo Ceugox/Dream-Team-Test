@@ -24,7 +24,7 @@ export class LinkedInSource implements NetworkSource {
       yield createPerson({
         id: `linkedin:${conn.profileUrl}`,
         name: conn.name,
-        headline: conn.headline ?? null,
+        headline: conn.headline || null,
         linkedinUrl: conn.profileUrl,
         sources: ["linkedin"],
       });

@@ -1,5 +1,13 @@
 import type { Person, RelationshipData } from "../domain/person";
 
+function normalizeLinkedinUrl(url: string): string {
+  return url
+    .toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .replace(/^www\./, "")
+    .replace(/\/+$/, "");
+}
+
 export interface MergeDecision {
   shouldMerge: boolean;
   matchScore: number;
@@ -13,7 +21,7 @@ export function resolveIdentity(a: Person, b: Person): MergeDecision {
   const signalsUsed: string[] = [];
   let matchScore = 0;
 
-  if (a.linkedinUrl && b.linkedinUrl && a.linkedinUrl === b.linkedinUrl) {
+  if (a.linkedinUrl && b.linkedinUrl && normalizeLinkedinUrl(a.linkedinUrl) === normalizeLinkedinUrl(b.linkedinUrl)) {
     signalsUsed.push("linkedinUrl");
     matchScore = Math.max(matchScore, 0.99);
   }

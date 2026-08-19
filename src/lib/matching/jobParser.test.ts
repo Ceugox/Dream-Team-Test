@@ -28,3 +28,18 @@ test("falls back to titleHint when the text has no clear title line", () => {
   const job = parseJobDescription("Just some loose text about Python and AWS.", "Backend Engineer");
   expect(job.title).toBe("Backend Engineer");
 });
+
+test("does not fabricate a skill via substring collision (javascript should not match java)", () => {
+  const job = parseJobDescription("Required: JavaScript, React.");
+  expect(job.requiredSkills.map((s) => s.toLowerCase())).not.toContain("java");
+  expect(job.requiredSkills.map((s) => s.toLowerCase())).toEqual(
+    expect.arrayContaining(["javascript", "react"])
+  );
+});
+
+test("picks up skills mentioned in free-form prose without a Required:/Nice to have: line", () => {
+  const job = parseJobDescription("We're hiring! You'll work with Python and AWS daily. No specific format here.");
+  expect(job.requiredSkills.map((s) => s.toLowerCase())).toEqual(
+    expect.arrayContaining(["python", "aws"])
+  );
+});

@@ -27,9 +27,13 @@ const KNOWN_SKILLS = [
 
 const INDUSTRY_KEYWORDS = ["fintech", "healthtech", "edtech", "e-commerce", "logistics", "payments", "banking"];
 
+function containsSkillToken(text: string, skill: string): boolean {
+  const escaped = skill.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`\\b${escaped}\\b`, "i").test(text);
+}
+
 function extractSkillsFromLine(line: string): string[] {
-  const lower = line.toLowerCase();
-  return KNOWN_SKILLS.filter((skill) => lower.includes(skill));
+  return KNOWN_SKILLS.filter((skill) => containsSkillToken(line, skill));
 }
 
 export function parseJobDescription(rawText: string, titleHint?: string): JobProfile {
@@ -64,8 +68,14 @@ export function parseJobDescription(rawText: string, titleHint?: string): JobPro
 
   const requiredLine = lines.find((l) => /^required:/i.test(l)) ?? "";
   const preferredLine = lines.find((l) => /^nice to have:/i.test(l)) ?? "";
-  const requiredSkills = extractSkillsFromLine(requiredLine);
-  const preferredSkills = extractSkillsFromLine(preferredLine).filter((s) => !requiredSkills.includes(s));
+  const lineRequiredSkills = extractSkillsFromLine(requiredLine);
+  const linePreferredSkills = extractSkillsFromLine(preferredLine);
+
+  const fullTextSkills = extractSkillsFromLine(rawText);
+  const requiredSkills = Array.from(
+    new Set([...lineRequiredSkills, ...fullTextSkills.filter((s) => !linePreferredSkills.includes(s))])
+  );
+  const preferredSkills = linePreferredSkills.filter((s) => !requiredSkills.includes(s));
 
   const lower = rawText.toLowerCase();
   const industry = INDUSTRY_KEYWORDS.find((kw) => lower.includes(kw)) ?? null;

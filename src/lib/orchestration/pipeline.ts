@@ -106,10 +106,4 @@ export async function* runPipeline(sources: NetworkSource[]): AsyncGenerator<Pip
   };
 
   yield { type: "network.completed", elapsedMs: budget.elapsedMs() };
-
-  (runPipeline as unknown as { lastRegistry: Person[] }).lastRegistry = registry;
-}
-
-export function getLastRegistry(): Person[] {
-  return (runPipeline as unknown as { lastRegistry?: Person[] }).lastRegistry ?? [];
 }

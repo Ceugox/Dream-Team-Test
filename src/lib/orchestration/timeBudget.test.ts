@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import { TimeBudget } from "./timeBudget";
 
 test("defaults to the 290s spec budget", () => {
-  let now = 0;
+  const now = 0;
   const budget = new TimeBudget(undefined, () => now);
   expect(budget.remainingMs()).toBe(290_000);
 });

@@ -2,6 +2,11 @@ import type { Person } from "../domain/person";
 import type { JobProfile } from "../domain/job";
 import type { CandidateFitResult } from "./candidateFit";
 
+function containsSkillToken(text: string, skill: string): boolean {
+  const escaped = skill.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`\\b${escaped}\\b`, "i").test(text);
+}
+
 export function computeReferralScore(candidateFit: number, relationshipScore: number, confidence: number): number {
   return candidateFit * (0.7 + 0.3 * relationshipScore) * confidence;
 }
@@ -10,8 +15,9 @@ export function explainMatch(person: Person, job: JobProfile, fit: CandidateFitR
   const evidence: string[] = [];
 
   if (fit.skillsFit > 0) {
+    const skillsText = person.skills.join(" ") + " " + (person.headline ?? "");
     const matched = [...job.requiredSkills, ...job.preferredSkills].filter((skill) =>
-      (person.skills.join(" ") + " " + (person.headline ?? "")).toLowerCase().includes(skill.toLowerCase())
+      containsSkillToken(skillsText, skill)
     );
     if (matched.length > 0) evidence.push(`Skills matched: ${matched.join(", ")}`);
   }
@@ -20,8 +26,8 @@ export function explainMatch(person: Person, job: JobProfile, fit: CandidateFitR
     evidence.push(`${job.industry[0].toUpperCase()}${job.industry.slice(1)} experience`);
   }
 
-  if (fit.locationFit === 1 && job.location) {
-    evidence.push(`Based in ${job.location}`);
+  if (fit.locationFit === 1 && job.location && person.location) {
+    evidence.push(`Based in ${person.location}`);
   }
 
   if (fit.seniorityFit === 1 && job.seniority !== "unknown") {

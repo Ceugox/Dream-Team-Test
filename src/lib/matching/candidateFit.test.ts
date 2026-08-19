@@ -48,3 +48,21 @@ test("score is a weighted sum matching the spec formula", () => {
     0.35 * fit.skillsFit + 0.25 * fit.roleFit + 0.15 * fit.seniorityFit + 0.15 * fit.industryFit + 0.1 * fit.locationFit;
   expect(fit.score).toBeCloseTo(expected, 5);
 });
+
+test("javascript skill does not falsely match a job requiring java (word-boundary, not substring)", () => {
+  const javaJob = JobProfileSchema.parse({
+    title: "Java Backend Engineer",
+    description: "...",
+    requiredSkills: ["java"],
+    preferredSkills: [],
+    seniority: "senior",
+  });
+  const person = createPerson({
+    id: "4",
+    name: "Test JS",
+    headline: "Senior Frontend Engineer",
+    skills: ["javascript"],
+  });
+  const fit = computeCandidateFit(person, javaJob);
+  expect(fit.skillsFit).toBe(0);
+});

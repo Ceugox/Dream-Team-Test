@@ -15,6 +15,11 @@ function clamp01(value: number): number {
   return Math.min(1, Math.max(0, value));
 }
 
+function containsSkillToken(text: string, skill: string): boolean {
+  const escaped = skill.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`\\b${escaped}\\b`, "i").test(text);
+}
+
 function textOverlapFit(candidateText: string | null, targetTerms: string[]): number {
   if (!candidateText || targetTerms.length === 0) return 0;
   const lower = candidateText.toLowerCase();
@@ -26,8 +31,8 @@ export function computeCandidateFit(person: Person, job: JobProfile): CandidateF
   const parsed = parseHeadline(person.headline);
   const allSkillTerms = [...job.requiredSkills, ...job.preferredSkills];
   const skillsText = person.skills.join(" ") + " " + (person.headline ?? "");
-  const requiredHits = job.requiredSkills.filter((s) => skillsText.toLowerCase().includes(s.toLowerCase()));
-  const preferredHits = job.preferredSkills.filter((s) => skillsText.toLowerCase().includes(s.toLowerCase()));
+  const requiredHits = job.requiredSkills.filter((s) => containsSkillToken(skillsText, s));
+  const preferredHits = job.preferredSkills.filter((s) => containsSkillToken(skillsText, s));
   const skillsFit =
     allSkillTerms.length === 0
       ? 0
@@ -40,7 +45,7 @@ export function computeCandidateFit(person: Person, job: JobProfile): CandidateF
   const seniorityFit = job.seniority === "unknown" ? 0.5 : personSeniority === job.seniority ? 1 : personSeniority === "unknown" ? 0.3 : 0.1;
 
   const industryFit = job.industry
-    ? parsed.industryKeywords.includes(job.industry) || (person.headline ?? "").toLowerCase().includes(job.industry)
+    ? parsed.industryKeywords.includes(job.industry.toLowerCase()) || (person.headline ?? "").toLowerCase().includes(job.industry.toLowerCase())
       ? 1
       : 0
     : 0.5;

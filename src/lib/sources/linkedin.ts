@@ -5,7 +5,7 @@ import type { LinkedInConnectionRaw } from "./demoData";
 
 const LinkedInConnectionSchema = z.object({
   name: z.string(),
-  headline: z.string().optional(),
+  headline: z.string(),
   profileUrl: z.string(),
   connectedOn: z.string().optional(),
 });

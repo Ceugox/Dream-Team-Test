@@ -221,7 +221,35 @@ export async function markFinished(
   const rows = await db.query<StoredSession>(`UPDATE linkedin_sync_sessions SET
     status=$5,provider_session_reference=NULL,updated_at=now(),version=version+1
     WHERE id=$1 AND owner_type=$2 AND owner_id=$3 AND organization_id=$4
+      AND status NOT IN ('completed','cancelled','failed','expired')
     RETURNING ${sessionFields}`, [id, ...ownerValues(owner), status]);
+  if (rows[0]) return toSession(rows[0]);
+  return findOwnedSession(owner, id, db);
+}
+
+export async function createSessionWithCapacity(
+  owner: LinkedInOwner,
+  input: {
+    expiresAt: Date;
+    providerSessionReference?: EncryptedProviderSessionReference | null;
+    consentedAt?: Date | null;
+    consentVersion?: string | null;
+    status?: LinkedInSessionStatus;
+  },
+  maxActiveSessions: number,
+  db: QueryGateway = database,
+): Promise<LinkedInSession | null> {
+  if (input.providerSessionReference !== undefined && input.providerSessionReference !== null) {
+    assertEncryptedProviderSessionReference(input.providerSessionReference);
+  }
+  const rows = await db.query<StoredSession>(`INSERT INTO linkedin_sync_sessions
+    (owner_type,owner_id,organization_id,status,provider_session_reference,consented_at,consent_version,expires_at)
+    SELECT $1,$2,$3,$4,$5,$6,$7,$8
+    WHERE (SELECT count(*) FROM linkedin_sync_sessions
+      WHERE status NOT IN ('completed','cancelled','failed','expired')) < $9
+    RETURNING ${sessionFields}`,
+  [...ownerValues(owner), input.status ?? "preparing", input.providerSessionReference ?? null,
+    input.consentedAt ?? null, input.consentVersion ?? null, input.expiresAt, maxActiveSessions]);
   return rows[0] ? toSession(rows[0]) : null;
 }
 

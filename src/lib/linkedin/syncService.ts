@@ -5,7 +5,7 @@ import { assertEncryptedProviderSessionReference } from "./crypto";
 import { prioritizeInventory, type OpenJobSignal } from "./prioritization";
 import {
   countActiveSessions,
-  createSession,
+  createSessionWithCapacity,
   findAllExpiredSessions,
   findOwnedSession,
   markFinished,
@@ -26,13 +26,13 @@ const PROFILE_SNAPSHOT_SCHEMA_VERSION = 1;
 type FinalStatus = Extract<LinkedInSessionStatus, "completed" | "cancelled" | "failed" | "expired">;
 
 export interface SyncRepository {
-  createSession(owner: LinkedInOwner, input: {
+  createSessionWithCapacity(owner: LinkedInOwner, input: {
     expiresAt: Date;
     providerSessionReference?: string | null;
     consentedAt?: Date | null;
     consentVersion?: string | null;
     status?: LinkedInSessionStatus;
-  }): Promise<LinkedInSession>;
+  }, maxActiveSessions: number): Promise<LinkedInSession | null>;
   findOwnedSession(owner: LinkedInOwner, id: string): Promise<LinkedInSession | null>;
   transitionOwnedSession(owner: LinkedInOwner, id: string, status: LinkedInSessionStatus, changes?: {
     failureCode?: string | null;
@@ -47,12 +47,12 @@ export interface SyncRepository {
 }
 
 export const defaultSyncRepository: SyncRepository = {
-  createSession: (owner, input) => createSession(owner, {
+  createSessionWithCapacity: (owner, input, maxActiveSessions) => createSessionWithCapacity(owner, {
     ...input,
     providerSessionReference: input.providerSessionReference == null
       ? input.providerSessionReference
       : assertEncryptedProviderSessionReference(input.providerSessionReference),
-  }),
+  }, maxActiveSessions),
   findOwnedSession: (owner, id) => findOwnedSession(owner, id),
   transitionOwnedSession: (owner, id, status, changes) => transitionOwnedSession(owner, id, status, changes),
   countActiveSessions: () => countActiveSessions(),
@@ -86,9 +86,15 @@ export interface SyncServiceDependencies {
 }
 
 export function isAuthenticatedSignal(input: { url: string; hasNavigation: boolean }): boolean {
-  const url = input.url.toLowerCase();
-  if (!url.includes("linkedin.com")) return false;
-  if (/\/(login|checkpoint|uas|authwall)\b/.test(url)) return false;
+  let parsed: URL;
+  try {
+    parsed = new URL(input.url);
+  } catch {
+    return false;
+  }
+  const hostname = parsed.hostname.toLowerCase();
+  if (hostname !== "linkedin.com" && !hostname.endsWith(".linkedin.com")) return false;
+  if (/\/(login|checkpoint|uas|authwall)\b/.test(parsed.pathname.toLowerCase())) return false;
   return input.hasNavigation;
 }
 
@@ -149,13 +155,14 @@ export function createLinkedInSyncService(dependencies: SyncServiceDependencies)
     if (active >= config.maxConcurrentSessions) throw new Error("LINKEDIN_SYNC_CAPACITY");
     const providerSession = await provider.createSession({ sessionId: randomUUID(), timeoutMs: config.loginTimeoutMs });
     try {
-      const session = await repository.createSession(owner, {
+      const session = await repository.createSessionWithCapacity(owner, {
         expiresAt: new Date(now().getTime() + config.sessionTimeoutMs),
         providerSessionReference: providerSession.encryptedReferencePayload,
         consentedAt: now(),
         consentVersion: CONSENT_VERSION,
         status: "preparing",
-      });
+      }, config.maxConcurrentSessions);
+      if (!session) throw new Error("LINKEDIN_SYNC_CAPACITY");
       const awaiting = await repository.transitionOwnedSession(owner, session.id, "awaiting_login") ?? session;
       return { session: toPublicSession(awaiting), interactiveUrl: providerSession.interactiveUrl };
     } catch (error) {
@@ -213,6 +220,7 @@ export function createLinkedInSyncService(dependencies: SyncServiceDependencies)
         await delay(loginPollMs);
       }
       await handle.closeInteractiveUrl();
+      if (now().getTime() >= session.expiresAt.getTime()) return await finish("expired");
       await repository.transitionOwnedSession(owner, sessionId, "authenticated");
       await repository.transitionOwnedSession(owner, sessionId, "inventorying");
 

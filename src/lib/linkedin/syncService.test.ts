@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createLinkedInSyncService, isAuthenticatedSignal, type SyncRepository } from "./syncService";
+import { canTransition } from "./sessionState";
 import { LINKEDIN_SELECTOR_VERSION, type InventoryEntry, type ObservedField, type ProfessionalProfile } from "./collectors/schemas";
 import type { LinkedInBrowserProvider, RemoteBrowserHandle } from "./providers/types";
 import type { LinkedInOwner, LinkedInProviderConfig, LinkedInSession, LinkedInSessionStatus } from "./types";
@@ -58,8 +59,10 @@ function fakeRepository() {
     session.status = status;
     if (finalStatuses.includes(status)) session.providerSessionReference = null;
   };
+  const active = () => [...sessions.values()].filter((session) => !finalStatuses.includes(session.status)).length;
   const repository: SyncRepository = {
-    createSession: async (owner, input) => {
+    createSessionWithCapacity: async (owner, input, maxActiveSessions) => {
+      if (active() >= maxActiveSessions) return null;
       counter += 1;
       const session: LinkedInSession = {
         id: `session-${counter}`, status: input.status ?? "preparing",
@@ -78,13 +81,14 @@ function fakeRepository() {
     transitionOwnedSession: async (_owner, id, status, changes = {}) => {
       const session = sessions.get(id);
       if (!session) return null;
+      if (!canTransition(session.status, status)) throw new Error("INVALID_LINKEDIN_SESSION_TRANSITION");
       transitionLog.push(status);
       finish(session, status);
       if (Object.hasOwn(changes, "failureCode")) session.failureCode = changes.failureCode ?? null;
       if (Object.hasOwn(changes, "failureMessageSafe")) session.failureMessageSafe = changes.failureMessageSafe ?? null;
       return { ...session };
     },
-    countActiveSessions: async () => [...sessions.values()].filter((session) => !finalStatuses.includes(session.status)).length,
+    countActiveSessions: async () => active(),
     saveInventoryContact: async (_owner, id) => {
       const session = sessions.get(id);
       if (!session) return null;
@@ -105,6 +109,7 @@ function fakeRepository() {
     markFinished: async (_owner, id, status) => {
       const session = sessions.get(id);
       if (!session) return null;
+      if (finalStatuses.includes(session.status)) return { ...session };
       transitionLog.push(status);
       finish(session, status);
       return { ...session };
@@ -332,6 +337,20 @@ describe("LinkedIn sync service", () => {
     expect(context.sessions.get(created.session.id)?.failedCount).toBe(1);
   });
 
+  it("keeps a session cancelled when the cancel races the login polling", async () => {
+    const context = harness({
+      readAuthentication: async () => {
+        await context.service.cancelOwnedSession(admin, [...context.sessions.keys()][0]);
+        return true;
+      },
+    });
+    const created = await context.service.createInteractiveSession(admin, { consent: true });
+    const result = await context.service.runCollection(admin, created.session.id);
+    expect(result?.status).toBe("cancelled");
+    expect(context.sessions.get(created.session.id)?.status).toBe("cancelled");
+    expect(context.sessions.get(created.session.id)?.providerSessionReference).toBeNull();
+  });
+
   it("cancels an owned session idempotently and destroys its reference", async () => {
     const context = harness();
     const created = await context.service.createInteractiveSession(admin, { consent: true });
@@ -345,7 +364,7 @@ describe("LinkedIn sync service", () => {
 
   it("expires orphaned sessions of every owner", async () => {
     const context = harness();
-    await context.repository.createSession(admin, { expiresAt: new Date(0), providerSessionReference: "enc:v1:orphan" as never, status: "awaiting_login" });
+    await context.repository.createSessionWithCapacity(admin, { expiresAt: new Date(0), providerSessionReference: "enc:v1:orphan" as never, status: "awaiting_login" }, 2);
     const expired = await context.service.expireOrphanedSessions();
     expect(expired).toBe(1);
     expect([...context.sessions.values()][0].status).toBe("expired");

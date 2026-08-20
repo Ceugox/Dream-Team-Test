@@ -307,7 +307,8 @@ export async function replaceAdminNetworkContacts(administratorId: string, conta
       if (contact.linkedinUrl) await client.query(`INSERT INTO admin_network_contacts
         (organization_id,administrator_id,name,headline,linkedin_url,phone,source,profile_context,network_capital_score,network_capital_evidence,network_capital_confidence) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11)
         ON CONFLICT (administrator_id,linkedin_url) WHERE linkedin_url IS NOT NULL DO UPDATE SET
-        name=excluded.name,headline=coalesce(excluded.headline,admin_network_contacts.headline),phone=coalesce(excluded.phone,admin_network_contacts.phone),profile_context=coalesce(excluded.profile_context,admin_network_contacts.profile_context),
+        name=excluded.name,headline=coalesce(excluded.headline,admin_network_contacts.headline),phone=coalesce(excluded.phone,admin_network_contacts.phone),
+        profile_context=CASE WHEN length(coalesce(excluded.profile_context,''))>length(coalesce(admin_network_contacts.profile_context,'')) THEN excluded.profile_context ELSE admin_network_contacts.profile_context END,
         network_capital_score=greatest(excluded.network_capital_score,admin_network_contacts.network_capital_score),
         network_capital_evidence=case when jsonb_array_length(excluded.network_capital_evidence)>0 then excluded.network_capital_evidence else admin_network_contacts.network_capital_evidence end,
         network_capital_confidence=greatest(excluded.network_capital_confidence,admin_network_contacts.network_capital_confidence),updated_at=now()`,

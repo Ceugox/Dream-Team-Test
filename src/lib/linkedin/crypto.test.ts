@@ -32,7 +32,9 @@ describe("LinkedIn provider session encryption", () => {
   it("rejects tampered envelopes and wrong keys with safe errors", () => {
     const plaintext = "private-provider-session";
     const encrypted = encryptProviderSessionReference(plaintext, testSecret);
-    const tampered = `${encrypted.slice(0, -1)}${encrypted.endsWith("A") ? "B" : "A"}`;
+    const tamperIndex = "enc:v1:".length;
+    const tamperedCharacter = encrypted[tamperIndex] === "A" ? "B" : "A";
+    const tampered = `${encrypted.slice(0, tamperIndex)}${tamperedCharacter}${encrypted.slice(tamperIndex + 1)}`;
 
     for (const attempt of [
       () => decryptProviderSessionReference(tampered, testSecret),

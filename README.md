@@ -59,6 +59,7 @@ Crie um `.env.local`:
 DATABASE_URL=postgresql://usuario:senha@localhost:5432/referral_copilot
 APP_SECRET=troque-por-um-segredo-longo-e-aleatorio
 ADMIN_ACCESS_KEY=troque-por-uma-chave-administrativa
+APP_URL=http://localhost:3000
 ```
 
 Acesse `http://localhost:3000`. A raiz oferece os acessos de administrador e usuário convidado.

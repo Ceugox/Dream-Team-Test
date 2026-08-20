@@ -110,7 +110,7 @@ async function activePage(browser: BrowserConnectionLike): Promise<{
   page: RemoteBrowserPage;
   cdp: CdpSessionLike;
 }> {
-  const page = (await browser.pages())[0] as BrowserPageLike | undefined;
+  const page = (await browser.pages())[0] as (BrowserPageLike & RemoteBrowserPage) | undefined;
   if (!page || typeof page.createCDPSession !== "function") throw safeError(CONNECTION_ERROR);
   return { page, cdp: await page.createCDPSession() };
 }

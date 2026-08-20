@@ -21,7 +21,7 @@ export async function POST(req: Request) {
     } catch (err) {
       return new Response(
         JSON.stringify({
-          error: `Invalid connections.json: ${err instanceof Error ? err.message : String(err)}`,
+          error: `Invalid network export: ${err instanceof Error ? err.message : String(err)}`,
         }),
         { status: 400, headers: { "Content-Type": "application/json" } }
       );

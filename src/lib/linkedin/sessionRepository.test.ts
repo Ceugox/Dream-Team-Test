@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  createEncryptedProviderSessionReference,
+  createSession,
   findOwnedSession,
   markFinished,
   saveInventoryContact,
@@ -28,17 +30,36 @@ const admin: LinkedInOwner = { type: "admin", id: "admin-1", organizationId: "or
 const anotherAdmin: LinkedInOwner = { type: "admin", id: "admin-2", organizationId: "org-1" };
 const member: LinkedInOwner = { type: "member", id: "member-1", organizationId: "org-1" };
 
-const storedSession = {
+const rawStoredSession = {
   id: "session-1", status: "awaiting_login", inventoryCount: 0, enrichedCount: 0, failedCount: 0,
-  providerSessionReference: "encrypted-reference", createdAt: new Date(0), expiresAt: new Date(1),
-  failureCode: null, failureMessageSafe: null, owner: admin,
+  providerSessionReference: "enc:v1:c2VhbGVkX2VudmVsb3Bl", createdAt: new Date(0), expiresAt: new Date(1),
+  failureCode: null, failureMessageSafe: null, ownerType: "admin", ownerId: "admin-1", organizationId: "org-1",
 };
+
+const { ownerType: _ownerType, ownerId: _ownerId, organizationId: _organizationId, ...storedSessionFields } = rawStoredSession;
+const storedSession = { ...storedSessionFields, owner: admin };
 
 describe("LinkedIn session repository", () => {
   it("finds an admin's own session", async () => {
-    const { db } = gateway([[storedSession]]);
+    const { db } = gateway([[rawStoredSession]]);
 
     await expect(findOwnedSession(admin, "session-1", db)).resolves.toEqual(storedSession);
+  });
+
+  it.each([
+    [{ ...rawStoredSession, ownerType: "operator" }],
+    [{ ...rawStoredSession, ownerId: "" }],
+    [{ ...rawStoredSession, organizationId: undefined }],
+  ])("rejects a persisted session with an invalid owner", async (row) => {
+    const { db } = gateway([[row]]);
+
+    await expect(findOwnedSession(admin, "session-1", db)).rejects.toThrow("INVALID_LINKEDIN_SESSION_OWNER");
+  });
+
+  it("rejects a persisted provider reference that is not an encrypted envelope", async () => {
+    const { db } = gateway([[{ ...rawStoredSession, providerSessionReference: "wss://provider.example/session?token=raw" }]]);
+
+    await expect(findOwnedSession(admin, "session-1", db)).rejects.toThrow("INVALID_ENCRYPTED_PROVIDER_SESSION_REFERENCE");
   });
 
   it("does not return a session to another admin in the same organization", async () => {
@@ -56,7 +77,7 @@ describe("LinkedIn session repository", () => {
   });
 
   it("transitions only through the complete owner predicate", async () => {
-    const { db, calls } = gateway([[storedSession], [{ ...storedSession, status: "authenticated" }]]);
+    const { db, calls } = gateway([[rawStoredSession], [{ ...rawStoredSession, status: "authenticated" }]]);
 
     await transitionOwnedSession(admin, "session-1", "authenticated", {}, db);
 
@@ -64,8 +85,21 @@ describe("LinkedIn session repository", () => {
     expect(calls[1].values.slice(0, 4)).toEqual(["session-1", "admin", "admin-1", "org-1"]);
   });
 
+  it.each([
+    ["completed", "results_available"],
+    ["cancelled", "awaiting_login"],
+    ["failed", "awaiting_login"],
+    ["expired", "awaiting_login"],
+  ] as const)("clears the provider reference when transitioned to %s", async (status, initialStatus) => {
+    const { db, calls } = gateway([[{ ...rawStoredSession, status: initialStatus }], [{ ...rawStoredSession, status, providerSessionReference: null }]]);
+
+    await transitionOwnedSession(admin, "session-1", status, {}, db);
+
+    expect(calls[1].text).toContain("provider_session_reference=NULL");
+  });
+
   it("clears the provider reference when a session is finalized", async () => {
-    const { db, calls } = gateway([[{ ...storedSession, status: "completed", providerSessionReference: null }]]);
+    const { db, calls } = gateway([[{ ...rawStoredSession, status: "completed", providerSessionReference: null }]]);
 
     await markFinished(admin, "session-1", "completed", db);
 
@@ -74,7 +108,7 @@ describe("LinkedIn session repository", () => {
   });
 
   it("increments inventory counters atomically", async () => {
-    const { db, calls } = gateway([[{ ...storedSession, inventoryCount: 1 }]]);
+    const { db, calls } = gateway([[{ ...rawStoredSession, inventoryCount: 1 }]]);
 
     await saveInventoryContact(admin, "session-1", db);
 
@@ -112,5 +146,23 @@ describe("LinkedIn session repository", () => {
       extractionConfidence: 0.9,
       schemaVersion: 1,
     }, db)).rejects.toThrow("UNSAFE_PROFILE_SNAPSHOT");
+  });
+
+  it("accepts only versioned encrypted provider references when creating a session", async () => {
+    const { db, calls } = gateway([[rawStoredSession]]);
+    const reference = createEncryptedProviderSessionReference("enc:v1:c2VhbGVkX2VudmVsb3Bl");
+
+    await createSession(admin, { expiresAt: new Date(1), providerSessionReference: reference }, db);
+
+    expect(calls[0].values).toContain(reference);
+  });
+
+  it("rejects a raw provider reference at runtime when creating a session", async () => {
+    const { db } = gateway([[rawStoredSession]]);
+
+    await expect(createSession(admin, {
+      expiresAt: new Date(1),
+      providerSessionReference: "wss://provider.example/session?token=raw" as never,
+    }, db)).rejects.toThrow("INVALID_ENCRYPTED_PROVIDER_SESSION_REFERENCE");
   });
 });

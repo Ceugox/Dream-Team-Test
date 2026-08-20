@@ -29,6 +29,7 @@ afterEach(() => {
   process.env.ADMIN_ACCESS_KEY = originalKey;
   process.env.APP_SECRET = originalSecret;
   cookieValues.clear();
+  vi.useRealTimers();
 });
 
 describe("platform auth", () => {
@@ -61,6 +62,25 @@ describe("platform auth", () => {
 
   it("returns the valid member actor when no admin session exists", async () => {
     await setMemberSession("member-1", "org-1");
+
+    await expect(getAuthenticatedActor()).resolves.toEqual({
+      role: "member",
+      ownerId: "member-1",
+      organizationId: "org-1",
+    });
+  });
+
+  it.each(["malformed", "expired"])("returns the member actor when the admin cookie is %s", async (kind) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+    await setMemberSession("member-1", "org-1");
+
+    if (kind === "malformed") {
+      cookieValues.set("rc_admin", "not-a-valid-session");
+    } else {
+      await setAdminSession("admin-1", "org-1");
+      vi.setSystemTime(new Date("2026-01-01T13:00:00.000Z"));
+    }
 
     await expect(getAuthenticatedActor()).resolves.toEqual({
       role: "member",

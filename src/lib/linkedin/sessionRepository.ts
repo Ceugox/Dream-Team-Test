@@ -6,6 +6,12 @@ export interface QueryGateway {
   query<T = Record<string, unknown>>(text: string, values?: unknown[]): Promise<T[]>;
 }
 
+declare const encryptedProviderSessionReferenceBrand: unique symbol;
+
+export type EncryptedProviderSessionReference = string & {
+  readonly [encryptedProviderSessionReferenceBrand]: "EncryptedProviderSessionReference";
+};
+
 const database: QueryGateway = {
   query: async <T>(text: string, values: unknown[] = []) => databaseQuery<T & Record<string, unknown>>(text, values),
 };
@@ -21,10 +27,9 @@ type StoredSession = {
   expiresAt: Date;
   failureCode: string | null;
   failureMessageSafe: string | null;
-  owner?: LinkedInOwner;
-  ownerType?: LinkedInOwner["type"];
-  ownerId?: string;
-  organizationId?: string;
+  ownerType?: unknown;
+  ownerId?: unknown;
+  organizationId?: unknown;
 };
 
 const sessionFields = `id,status,
@@ -38,28 +43,51 @@ function ownerValues(owner: LinkedInOwner): [LinkedInOwner["type"], string, stri
 }
 
 function toSession(row: StoredSession): LinkedInSession {
-  if (row.owner) return row as LinkedInSession;
+  if ((row.ownerType !== "admin" && row.ownerType !== "member")
+    || typeof row.ownerId !== "string" || !row.ownerId.trim()
+    || typeof row.organizationId !== "string" || !row.organizationId.trim()) {
+    throw new Error("INVALID_LINKEDIN_SESSION_OWNER");
+  }
   return {
     id: row.id,
     status: row.status,
     inventoryCount: row.inventoryCount,
     enrichedCount: row.enrichedCount,
     failedCount: row.failedCount,
-    providerSessionReference: row.providerSessionReference,
+    providerSessionReference: row.providerSessionReference === null
+      ? null
+      : createEncryptedProviderSessionReference(row.providerSessionReference),
     createdAt: new Date(row.createdAt),
     expiresAt: new Date(row.expiresAt),
     failureCode: row.failureCode,
     failureMessageSafe: row.failureMessageSafe,
     owner: {
-      type: row.ownerType!,
-      id: row.ownerId!,
-      organizationId: row.organizationId!,
+      type: row.ownerType,
+      id: row.ownerId,
+      organizationId: row.organizationId,
     },
   };
 }
 
 function isFinalStatus(status: LinkedInSessionStatus): boolean {
   return status === "completed" || status === "cancelled" || status === "failed" || status === "expired";
+}
+
+function isEncryptedProviderSessionReference(value: unknown): value is EncryptedProviderSessionReference {
+  return typeof value === "string" && /^enc:v1:[A-Za-z0-9_-]+$/.test(value);
+}
+
+export function createEncryptedProviderSessionReference(value: string): EncryptedProviderSessionReference {
+  if (!isEncryptedProviderSessionReference(value)) {
+    throw new Error("INVALID_ENCRYPTED_PROVIDER_SESSION_REFERENCE");
+  }
+  return value;
+}
+
+function assertEncryptedProviderSessionReference(value: unknown): void {
+  if (!isEncryptedProviderSessionReference(value)) {
+    throw new Error("INVALID_ENCRYPTED_PROVIDER_SESSION_REFERENCE");
+  }
 }
 
 function assertSafeText(value: string | null | undefined, label: string): void {
@@ -91,13 +119,16 @@ export async function createSession(
   owner: LinkedInOwner,
   input: {
     expiresAt: Date;
-    providerSessionReference?: string | null;
+    providerSessionReference?: EncryptedProviderSessionReference | null;
     consentedAt?: Date | null;
     consentVersion?: string | null;
     status?: LinkedInSessionStatus;
   },
   db: QueryGateway = database,
 ): Promise<LinkedInSession> {
+  if (input.providerSessionReference !== undefined && input.providerSessionReference !== null) {
+    assertEncryptedProviderSessionReference(input.providerSessionReference);
+  }
   const rows = await db.query<StoredSession>(`INSERT INTO linkedin_sync_sessions
     (owner_type,owner_id,organization_id,status,provider_session_reference,consented_at,consent_version,expires_at)
     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
@@ -128,10 +159,12 @@ export async function transitionOwnedSession(
   if (!existing) return null;
   if (!canTransition(existing.status, status)) throw new Error("INVALID_LINKEDIN_SESSION_TRANSITION");
   assertSafeText(changes.failureMessageSafe, "FAILURE_MESSAGE");
+  const clearProviderSessionReference = isFinalStatus(status) ? "provider_session_reference=NULL," : "";
   const rows = await db.query<StoredSession>(`UPDATE linkedin_sync_sessions SET
     status=$5,
     failure_code=CASE WHEN $6 THEN $7 ELSE failure_code END,
     failure_message_safe=CASE WHEN $8 THEN $9 ELSE failure_message_safe END,
+    ${clearProviderSessionReference}
     updated_at=now(),version=version+1
     WHERE id=$1 AND owner_type=$2 AND owner_id=$3 AND organization_id=$4
     RETURNING ${sessionFields}`,

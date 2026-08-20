@@ -8,9 +8,11 @@ import {
   createSessionWithCapacity,
   findAllExpiredSessions,
   findOwnedSession,
+  getPendingProfileUrls,
   markFinished,
   recordEnrichmentResult,
   saveInventoryContact,
+  savePendingProfileUrls,
   saveProfileSnapshot,
   transitionOwnedSession,
   type ProfileSnapshotInput,
@@ -48,6 +50,8 @@ export interface SyncRepository {
   recordEnrichmentResult(owner: LinkedInOwner, sessionId: string, outcome: "enriched" | "failed"): Promise<LinkedInSession | null>;
   markFinished(owner: LinkedInOwner, id: string, status: FinalStatus): Promise<LinkedInSession | null>;
   findAllExpiredSessions(): Promise<LinkedInSession[]>;
+  savePendingProfileUrls(owner: LinkedInOwner, sessionId: string, profileUrls: string[]): Promise<void>;
+  getPendingProfileUrls(owner: LinkedInOwner, sessionId: string): Promise<string[]>;
 }
 
 export const defaultSyncRepository: SyncRepository = {
@@ -65,6 +69,8 @@ export const defaultSyncRepository: SyncRepository = {
   recordEnrichmentResult: (owner, sessionId, outcome) => recordEnrichmentResult(owner, sessionId, outcome),
   markFinished: (owner, id, status) => markFinished(owner, id, status),
   findAllExpiredSessions: () => findAllExpiredSessions(),
+  savePendingProfileUrls: (owner, sessionId, profileUrls) => savePendingProfileUrls(owner, sessionId, profileUrls),
+  getPendingProfileUrls: (owner, sessionId) => getPendingProfileUrls(owner, sessionId),
 };
 
 export interface CollectorRunOptions {
@@ -193,6 +199,10 @@ export function createLinkedInSyncService(dependencies: SyncServiceDependencies)
   ): Promise<InventoryStageResult> {
     const session = await repository.findOwnedSession(owner, sessionId);
     if (!session) return { session: null, profileUrls: [] };
+    if (session.status === "enriching") {
+      // Reexecução após o worker cair entre a transição e o enqueue: recupera a fila persistida.
+      return { session, profileUrls: await repository.getPendingProfileUrls(owner, sessionId) };
+    }
     if (session.status !== "awaiting_login") return { session, profileUrls: [] };
     const reference = session.providerSessionReference;
     if (!reference) {
@@ -234,13 +244,13 @@ export function createLinkedInSyncService(dependencies: SyncServiceDependencies)
       for (let index = 0; index < inventory.entries.length; index += 1) {
         await repository.saveInventoryContact(owner, sessionId);
       }
-      const enriching = await repository.transitionOwnedSession(owner, sessionId, "enriching");
-
       const jobs = await listOpenJobs();
       const ordered = prioritizeInventory(inventory.entries, jobs);
       const profileUrls = ordered
         .map((entry) => entry.profileUrl.value)
         .filter((url): url is string => Boolean(url));
+      await repository.savePendingProfileUrls(owner, sessionId, profileUrls);
+      const enriching = await repository.transitionOwnedSession(owner, sessionId, "enriching");
       return { session: enriching, profileUrls };
     } catch {
       destroyReference = true;
@@ -345,6 +355,19 @@ export function createLinkedInSyncService(dependencies: SyncServiceDependencies)
     return finalizeStage(owner, sessionId);
   }
 
+  async function releaseStuckSession(owner: LinkedInOwner, sessionId: string): Promise<LinkedInSession | null> {
+    const session = await repository.findOwnedSession(owner, sessionId);
+    if (!session) return null;
+    if (session.status !== "authenticated" && session.status !== "inventorying") return session;
+    const reference = session.providerSessionReference;
+    const failed = await repository.transitionOwnedSession(owner, sessionId, "failed", {
+      failureCode: "stale_run",
+      failureMessageSafe: "LinkedIn sync worker was interrupted mid-collection",
+    }).catch(() => repository.markFinished(owner, sessionId, "failed"));
+    if (reference) await provider.destroy(reference).catch(() => undefined);
+    return failed;
+  }
+
   async function cancelOwnedSession(owner: LinkedInOwner, sessionId: string): Promise<PublicLinkedInSession | null> {
     const session = await repository.findOwnedSession(owner, sessionId);
     if (!session) return null;
@@ -372,6 +395,7 @@ export function createLinkedInSyncService(dependencies: SyncServiceDependencies)
     finalizeStage,
     runCollection,
     cancelOwnedSession,
+    releaseStuckSession,
     expireOrphanedSessions,
   };
 }

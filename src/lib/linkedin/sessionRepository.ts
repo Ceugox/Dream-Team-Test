@@ -253,6 +253,31 @@ export async function createSessionWithCapacity(
   return rows[0] ? toSession(rows[0]) : null;
 }
 
+export async function savePendingProfileUrls(
+  owner: LinkedInOwner,
+  sessionId: string,
+  profileUrls: string[],
+  db: QueryGateway = database,
+): Promise<void> {
+  await db.query(`UPDATE linkedin_sync_sessions SET
+    pending_profile_urls=$5::jsonb,updated_at=now(),version=version+1
+    WHERE id=$1 AND owner_type=$2 AND owner_id=$3 AND organization_id=$4`,
+  [sessionId, ...ownerValues(owner), JSON.stringify(profileUrls)]);
+}
+
+export async function getPendingProfileUrls(
+  owner: LinkedInOwner,
+  sessionId: string,
+  db: QueryGateway = database,
+): Promise<string[]> {
+  const rows = await db.query<{ pendingProfileUrls: unknown }>(`SELECT pending_profile_urls AS "pendingProfileUrls"
+    FROM linkedin_sync_sessions
+    WHERE id=$1 AND owner_type=$2 AND owner_id=$3 AND organization_id=$4`, [sessionId, ...ownerValues(owner)]);
+  const raw = rows[0]?.pendingProfileUrls;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((value): value is string => typeof value === "string");
+}
+
 export async function countActiveSessions(db: QueryGateway = database): Promise<number> {
   const rows = await db.query<{ count: string | number }>(`SELECT count(*) AS count FROM linkedin_sync_sessions
     WHERE status NOT IN ('completed','cancelled','failed','expired')`, []);

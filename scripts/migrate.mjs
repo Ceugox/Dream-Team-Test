@@ -218,6 +218,8 @@ CREATE TABLE IF NOT EXISTS linkedin_sync_sessions (
   expires_at timestamptz NOT NULL
 );
 
+ALTER TABLE linkedin_sync_sessions ADD COLUMN IF NOT EXISTS pending_profile_urls jsonb NOT NULL DEFAULT '[]'::jsonb;
+
 CREATE TABLE IF NOT EXISTS linkedin_profile_snapshots (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   session_id uuid NOT NULL REFERENCES linkedin_sync_sessions(id) ON DELETE CASCADE,

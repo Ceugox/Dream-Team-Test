@@ -12,6 +12,7 @@ const LinkedInSessionPayload=z.object({sessionId:z.uuid(),owner:LinkedInOwnerPay
 const LinkedInProfilePayload=LinkedInSessionPayload.extend({profileUrl:z.string().url()});
 
 const CONTINUABLE_STATUSES:LinkedInSessionStatus[]=["enriching","results_available","completed"];
+const STUCK_STATUSES:LinkedInSessionStatus[]=["authenticated","inventorying"];
 
 async function refreshOpenJobMatching():Promise<number>{
   const jobs=await listJobs();
@@ -24,13 +25,21 @@ async function refreshOpenJobMatching():Promise<number>{
 }
 
 export async function executeTask(task:OrchestrationTask):Promise<unknown>{
+  const abort=new AbortController();
   const work=async()=>{
     if(task.taskType==="job_analysis"){const {jobId}=JobPayload.parse(task.payload);return {...await analyzeJob(jobId),taskType:task.taskType};}
     if(task.taskType==="profile_enrichment"){const payload=ProfilePayload.parse(task.payload);return {...await enrichAdminNetworkContact(payload.administratorId,payload.contactId),taskType:task.taskType};}
     if(task.taskType==="match_rerank"){const {jobId}=JobPayload.parse(task.payload);return {count:await refreshAdminRecommendations(jobId),taskType:task.taskType};}
     if(task.taskType==="linkedin_inventory"){
       const {sessionId,owner}=LinkedInSessionPayload.parse(task.payload);
-      const {session,profileUrls}=await getLinkedInSyncService().runInventoryStage(owner,sessionId);
+      const service=getLinkedInSyncService();
+      const {session,profileUrls}=await service.runInventoryStage(owner,sessionId,{signal:abort.signal});
+      if(session&&STUCK_STATUSES.includes(session.status)){
+        // Execução anterior morreu no meio da coleta: libera a sessão e o browser remoto.
+        await service.releaseStuckSession(owner,sessionId);
+        await cancelLinkedInWorkflow(task.workflowId,`linkedin_session_${session.status}_stale`);
+        return {taskType:task.taskType,status:"failed",profiles:0};
+      }
       if(!session||session.status!=="enriching"){
         await cancelLinkedInWorkflow(task.workflowId,`linkedin_session_${session?.status??"missing"}`);
         return {taskType:task.taskType,status:session?.status??null,profiles:0};
@@ -40,22 +49,21 @@ export async function executeTask(task:OrchestrationTask):Promise<unknown>{
     }
     if(task.taskType==="linkedin_profile_collect"){
       const {sessionId,owner,profileUrl}=LinkedInProfilePayload.parse(task.payload);
-      const session=await getLinkedInSyncService().runProfileStage(owner,sessionId,profileUrl);
+      const session=await getLinkedInSyncService().runProfileStage(owner,sessionId,profileUrl,{signal:abort.signal});
       if(!session||!CONTINUABLE_STATUSES.includes(session.status)){
         await cancelLinkedInWorkflow(task.workflowId,`linkedin_session_${session?.status??"missing"}`);
-        return {taskType:task.taskType,status:session?.status??null,matchesRefreshed:0};
       }
-      const matchesRefreshed=owner.type==="admin"?await refreshOpenJobMatching():0;
-      return {taskType:task.taskType,status:session.status,matchesRefreshed};
+      return {taskType:task.taskType,status:session?.status??null};
     }
     if(task.taskType==="linkedin_finalize"){
       const {sessionId,owner}=LinkedInSessionPayload.parse(task.payload);
       const session=await getLinkedInSyncService().finalizeStage(owner,sessionId);
-      return {taskType:task.taskType,status:session?.status??null,enriched:session?.enrichedCount??0,failed:session?.failedCount??0};
+      const matchesRefreshed=owner.type==="admin"&&session?.status==="completed"?await refreshOpenJobMatching():0;
+      return {taskType:task.taskType,status:session?.status??null,enriched:session?.enrichedCount??0,failed:session?.failedCount??0,matchesRefreshed};
     }
     throw new Error("UNKNOWN_TASK");
   };
   let timeout:ReturnType<typeof setTimeout>|undefined;
-  try{return await Promise.race([work(),new Promise<never>((_,reject)=>{timeout=setTimeout(()=>reject(new Error("TASK_TIMEOUT")),task.timeoutSeconds*1000);})]);}
+  try{return await Promise.race([work(),new Promise<never>((_,reject)=>{timeout=setTimeout(()=>{abort.abort();reject(new Error("TASK_TIMEOUT"));},task.timeoutSeconds*1000);})]);}
   finally{if(timeout)clearTimeout(timeout);}
 }

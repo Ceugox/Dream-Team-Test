@@ -55,6 +55,7 @@ function fakeRepository() {
   const sessions = new Map<string, LinkedInSession>();
   const snapshots: Array<{ linkedinUrl: string }> = [];
   const transitionLog: LinkedInSessionStatus[] = [];
+  const pendingUrls = new Map<string, string[]>();
   const finish = (session: LinkedInSession, status: LinkedInSessionStatus) => {
     session.status = status;
     if (finalStatuses.includes(status)) session.providerSessionReference = null;
@@ -117,8 +118,10 @@ function fakeRepository() {
     findAllExpiredSessions: async () => [...sessions.values()]
       .filter((session) => !finalStatuses.includes(session.status) && session.expiresAt.getTime() <= 0)
       .map((session) => ({ ...session })),
+    savePendingProfileUrls: async (_owner, id, urls) => { pendingUrls.set(id, urls); },
+    getPendingProfileUrls: async (_owner, id) => pendingUrls.get(id) ?? [],
   };
-  return { repository, sessions, snapshots, transitionLog };
+  return { repository, sessions, snapshots, transitionLog, pendingUrls };
 }
 
 function fakeProvider() {
@@ -360,6 +363,29 @@ describe("LinkedIn sync service", () => {
     expect(second?.status).toBe("cancelled");
     expect(context.destroyed).toEqual(["enc:v1:reference"]);
     expect(await context.service.cancelOwnedSession(admin, "missing")).toBeNull();
+  });
+
+  it("recovers the persisted profile queue when the inventory stage is re-executed", async () => {
+    const context = harness();
+    const created = await context.service.createInteractiveSession(admin, { consent: true });
+    const first = await context.service.runInventoryStage(admin, created.session.id);
+    expect(first.session?.status).toBe("enriching");
+    expect(first.profileUrls).toHaveLength(2);
+    const rerun = await context.service.runInventoryStage(admin, created.session.id);
+    expect(rerun.session?.status).toBe("enriching");
+    expect(rerun.profileUrls).toEqual(first.profileUrls);
+    expect(context.provider.connect).toHaveBeenCalledTimes(1);
+  });
+
+  it("releases a session stuck mid-collection and destroys the remote browser", async () => {
+    const context = harness();
+    const created = await context.service.createInteractiveSession(admin, { consent: true });
+    const session = context.sessions.get(created.session.id);
+    if (session) session.status = "inventorying";
+    const released = await context.service.releaseStuckSession(admin, created.session.id);
+    expect(released?.status).toBe("failed");
+    expect(released?.failureCode).toBe("stale_run");
+    expect(context.destroyed).toEqual(["enc:v1:reference"]);
   });
 
   it("expires orphaned sessions of every owner", async () => {

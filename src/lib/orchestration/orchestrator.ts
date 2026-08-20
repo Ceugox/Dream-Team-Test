@@ -34,6 +34,11 @@ export async function enqueueJobWorkflow(jobId:string,requestedBy?:string):Promi
 
 export async function enqueueLinkedInSyncWorkflow(sessionId:string,owner:LinkedInOwner):Promise<string>{
   return transaction(async client=>{
+    // Um único workflow por sessão: as chaves idempotentes das tasks são globais por sessão,
+    // então um segundo workflow herdaria tasks alheias e ficaria preso em pending para sempre.
+    const existing=await client.query<{id:string}>(`SELECT id FROM orchestration_workflows
+      WHERE organization_id=$1 AND kind='linkedin_sync' AND entity_id=$2 LIMIT 1`,[DEFAULT_ORGANIZATION_ID,sessionId]);
+    if(existing.rows[0])return existing.rows[0].id;
     const workflow=(await client.query<{id:string}>(`INSERT INTO orchestration_workflows (organization_id,kind,entity_type,entity_id,token_budget,estimated_cost_usd,requested_by)
       VALUES ($1,'linkedin_sync','linkedin_session',$2,$3,.02,NULL) RETURNING id`,[DEFAULT_ORGANIZATION_ID,sessionId,24000])).rows[0];
     const config=readLinkedInConfig();
@@ -41,6 +46,14 @@ export async function enqueueLinkedInSyncWorkflow(sessionId:string,owner:LinkedI
     await insertTask(client,{workflowId:workflow.id,taskType:spec.taskType,payload:spec.payload,tokenBudget:spec.tokenBudget,timeoutSeconds:spec.timeoutSeconds,priority:spec.priority,idempotencyKey:spec.idempotencyKey});
     return workflow.id;
   });
+}
+
+export async function cancelLinkedInWorkflowBySession(sessionId:string,reason:string):Promise<number>{
+  const workflows=await query<{id:string}>(`SELECT id FROM orchestration_workflows
+    WHERE organization_id=$1 AND kind='linkedin_sync' AND entity_id=$2`,[DEFAULT_ORGANIZATION_ID,sessionId]);
+  let cancelled=0;
+  for(const workflow of workflows)cancelled+=await cancelLinkedInWorkflow(workflow.id,reason);
+  return cancelled;
 }
 
 export async function enqueueLinkedInProfileTasks(workflowId:string,sessionId:string,owner:LinkedInOwner,profileUrls:string[]):Promise<number>{

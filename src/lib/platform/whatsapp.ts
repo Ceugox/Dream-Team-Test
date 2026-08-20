@@ -1,6 +1,8 @@
 export function normalizePhone(value: string, defaultCountry = "55"): string | null {
+  const international = value.trimStart().startsWith("+") || value.replace(/\D/g, "").startsWith("00");
   let digits = value.replace(/\D/g, "");
   if (digits.startsWith("00")) digits = digits.slice(2);
+  if (international) return digits.length >= 8 && digits.length <= 15 ? digits : null;
   if (digits.length === 10 || digits.length === 11) digits = `${defaultCountry}${digits}`;
   return digits.length >= 12 && digits.length <= 15 ? digits : null;
 }

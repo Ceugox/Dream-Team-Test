@@ -1,16 +1,14 @@
 import { query as databaseQuery } from "../platform/db";
+import {
+  assertEncryptedProviderSessionReference,
+  type EncryptedProviderSessionReference,
+} from "./crypto";
 import { canTransition } from "./sessionState";
 import type { LinkedInOwner, LinkedInSession, LinkedInSessionStatus } from "./types";
 
 export interface QueryGateway {
   query<T = Record<string, unknown>>(text: string, values?: unknown[]): Promise<T[]>;
 }
-
-declare const encryptedProviderSessionReferenceBrand: unique symbol;
-
-export type EncryptedProviderSessionReference = string & {
-  readonly [encryptedProviderSessionReferenceBrand]: "EncryptedProviderSessionReference";
-};
 
 const database: QueryGateway = {
   query: async <T>(text: string, values: unknown[] = []) => databaseQuery<T & Record<string, unknown>>(text, values),
@@ -56,7 +54,7 @@ function toSession(row: StoredSession): LinkedInSession {
     failedCount: row.failedCount,
     providerSessionReference: row.providerSessionReference === null
       ? null
-      : createEncryptedProviderSessionReference(row.providerSessionReference),
+      : assertEncryptedProviderSessionReference(row.providerSessionReference),
     createdAt: new Date(row.createdAt),
     expiresAt: new Date(row.expiresAt),
     failureCode: row.failureCode,
@@ -71,23 +69,6 @@ function toSession(row: StoredSession): LinkedInSession {
 
 function isFinalStatus(status: LinkedInSessionStatus): boolean {
   return status === "completed" || status === "cancelled" || status === "failed" || status === "expired";
-}
-
-function isEncryptedProviderSessionReference(value: unknown): value is EncryptedProviderSessionReference {
-  return typeof value === "string" && /^enc:v1:[A-Za-z0-9_-]+$/.test(value);
-}
-
-export function createEncryptedProviderSessionReference(value: string): EncryptedProviderSessionReference {
-  if (!isEncryptedProviderSessionReference(value)) {
-    throw new Error("INVALID_ENCRYPTED_PROVIDER_SESSION_REFERENCE");
-  }
-  return value;
-}
-
-function assertEncryptedProviderSessionReference(value: unknown): void {
-  if (!isEncryptedProviderSessionReference(value)) {
-    throw new Error("INVALID_ENCRYPTED_PROVIDER_SESSION_REFERENCE");
-  }
 }
 
 function assertSafeText(value: string | null | undefined, label: string): void {

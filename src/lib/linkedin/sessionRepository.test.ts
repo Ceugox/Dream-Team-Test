@@ -1,6 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-  createEncryptedProviderSessionReference,
   createSession,
   findOwnedSession,
   markFinished,
@@ -9,6 +8,7 @@ import {
   transitionOwnedSession,
   type QueryGateway,
 } from "./sessionRepository";
+import { encryptProviderSessionReference } from "./crypto";
 import type { LinkedInOwner } from "./types";
 
 type RecordedQuery = { text: string; values: unknown[] };
@@ -29,10 +29,12 @@ function gateway(rows: unknown[][] = []): { db: QueryGateway; calls: RecordedQue
 const admin: LinkedInOwner = { type: "admin", id: "admin-1", organizationId: "org-1" };
 const anotherAdmin: LinkedInOwner = { type: "admin", id: "admin-2", organizationId: "org-1" };
 const member: LinkedInOwner = { type: "member", id: "member-1", organizationId: "org-1" };
+const testSecret = "repository-linkedin-session-secret";
+const originalSecret = process.env.APP_SECRET;
 
 const rawStoredSession = {
   id: "session-1", status: "awaiting_login", inventoryCount: 0, enrichedCount: 0, failedCount: 0,
-  providerSessionReference: "enc:v1:c2VhbGVkX2VudmVsb3Bl", createdAt: new Date(0), expiresAt: new Date(1),
+  providerSessionReference: encryptProviderSessionReference("stored-provider-session", testSecret), createdAt: new Date(0), expiresAt: new Date(1),
   failureCode: null, failureMessageSafe: null, ownerType: "admin", ownerId: "admin-1", organizationId: "org-1",
 };
 
@@ -40,6 +42,14 @@ const { ownerType: _ownerType, ownerId: _ownerId, organizationId: _organizationI
 const storedSession = { ...storedSessionFields, owner: admin };
 
 describe("LinkedIn session repository", () => {
+  beforeEach(() => {
+    process.env.APP_SECRET = testSecret;
+  });
+
+  afterEach(() => {
+    process.env.APP_SECRET = originalSecret;
+  });
+
   it("finds an admin's own session", async () => {
     const { db } = gateway([[rawStoredSession]]);
 
@@ -56,8 +66,9 @@ describe("LinkedIn session repository", () => {
     await expect(findOwnedSession(admin, "session-1", db)).rejects.toThrow("INVALID_LINKEDIN_SESSION_OWNER");
   });
 
-  it("rejects a persisted provider reference that is not an encrypted envelope", async () => {
-    const { db } = gateway([[{ ...rawStoredSession, providerSessionReference: "wss://provider.example/session?token=raw" }]]);
+  it("rejects a prefix-valid raw provider token persisted as an envelope", async () => {
+    const rawTokenEnvelope = `enc:v1:${Buffer.from("token=raw-provider-cookie", "utf8").toString("base64url")}`;
+    const { db } = gateway([[{ ...rawStoredSession, providerSessionReference: rawTokenEnvelope }]]);
 
     await expect(findOwnedSession(admin, "session-1", db)).rejects.toThrow("INVALID_ENCRYPTED_PROVIDER_SESSION_REFERENCE");
   });
@@ -150,19 +161,20 @@ describe("LinkedIn session repository", () => {
 
   it("accepts only versioned encrypted provider references when creating a session", async () => {
     const { db, calls } = gateway([[rawStoredSession]]);
-    const reference = createEncryptedProviderSessionReference("enc:v1:c2VhbGVkX2VudmVsb3Bl");
+    const reference = encryptProviderSessionReference("provider-session-to-persist", testSecret);
 
     await createSession(admin, { expiresAt: new Date(1), providerSessionReference: reference }, db);
 
     expect(calls[0].values).toContain(reference);
   });
 
-  it("rejects a raw provider reference at runtime when creating a session", async () => {
+  it("rejects a prefix-valid raw provider token at runtime when creating a session", async () => {
     const { db } = gateway([[rawStoredSession]]);
+    const rawTokenEnvelope = `enc:v1:${Buffer.from("token=raw-provider-cookie", "utf8").toString("base64url")}`;
 
     await expect(createSession(admin, {
       expiresAt: new Date(1),
-      providerSessionReference: "wss://provider.example/session?token=raw" as never,
+      providerSessionReference: rawTokenEnvelope as never,
     }, db)).rejects.toThrow("INVALID_ENCRYPTED_PROVIDER_SESSION_REFERENCE");
   });
 });

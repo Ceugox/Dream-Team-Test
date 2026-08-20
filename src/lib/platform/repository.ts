@@ -10,6 +10,8 @@ import { rankCandidates } from "@/lib/matching/scoreRegistry";
 import { buildAdminRecommendations } from "./adminMatching";
 import { inferJobIntelligence, inferMatchRanking } from "@/lib/inference/matching";
 import { isInferenceConfigured } from "@/lib/inference/openrouter";
+import { discoverPublicProfile } from "@/lib/enrichment/publicProfile";
+import { inferNetworkCapital } from "./networkCapital";
 
 const orgId = DEFAULT_ORGANIZATION_ID;
 
@@ -192,10 +194,44 @@ export async function getAdministrator(id: string): Promise<Administrator | null
 export async function listAdminNetworkContacts(administratorId?: string): Promise<AdminNetworkContact[]> {
   return query<AdminNetworkContact>(`SELECT c.id,c.administrator_id AS "administratorId",a.name AS "ownerName",c.name,c.headline,
     c.linkedin_url AS "linkedinUrl",c.phone,c.source,c.created_at::text AS "createdAt",c.profile_context AS "profileContext",
-    c.network_capital_score AS "networkCapitalScore",c.network_capital_evidence AS "networkCapitalEvidence",c.network_capital_confidence AS "networkCapitalConfidence"
+    c.network_capital_score AS "networkCapitalScore",c.network_capital_evidence AS "networkCapitalEvidence",c.network_capital_confidence AS "networkCapitalConfidence",
+    c.public_enrichment_status AS "publicEnrichmentStatus",c.public_identity_confidence AS "publicIdentityConfidence",
+    c.public_sources AS "publicSources",c.public_enriched_at::text AS "publicEnrichedAt"
     FROM admin_network_contacts c JOIN administrators a ON a.id=c.administrator_id
     WHERE c.organization_id=$1 AND ($2::uuid IS NULL OR c.administrator_id=$2)
     ORDER BY c.created_at DESC`, [orgId,administratorId ?? null]);
+}
+
+export async function enrichAdminNetworkContacts(administratorId: string, limit = 4): Promise<{processed:number;enriched:number;unconfirmed:number;failed:number}> {
+  if (!isInferenceConfigured()) throw new Error("OPENROUTER_NOT_CONFIGURED");
+  const contacts = await query<Pick<AdminNetworkContact,"id"|"name"|"headline"|"linkedinUrl"|"profileContext">>(`SELECT id,name,headline,linkedin_url AS "linkedinUrl",profile_context AS "profileContext"
+    FROM admin_network_contacts WHERE organization_id=$1 AND administrator_id=$2
+    AND (public_enriched_at IS NULL OR public_enriched_at < now()-interval '30 days')
+    ORDER BY (CASE WHEN profile_context IS NULL THEN 0 ELSE 1 END),created_at DESC LIMIT $3`, [orgId,administratorId,Math.max(1,Math.min(limit,4))]);
+  let enriched=0,unconfirmed=0,failed=0;
+  await Promise.all(contacts.map(async contact=>{
+    try {
+      const discovery=await discoverPublicProfile(contact);
+      const sources=discovery.sources.slice(0,8).map(source=>({...source,excerpt:source.excerpt?.slice(0,700)??null}));
+      if(!discovery.confirmed){
+        unconfirmed++;
+        await query(`UPDATE admin_network_contacts SET public_enrichment_status='unconfirmed',public_identity_confidence=$1,public_sources=$2::jsonb,public_enriched_at=now(),updated_at=now() WHERE id=$3 AND administrator_id=$4`,[discovery.identityConfidence,JSON.stringify(sources),contact.id,administratorId]);
+        return;
+      }
+      const discoveredContext=[...discovery.education,...discovery.experience,...discovery.internationalExperience,discovery.summary].filter(Boolean).join(" · ");
+      const profileContext=[contact.profileContext,discoveredContext&&`Descoberta pública: ${discoveredContext}`].filter(Boolean).join(" · ").slice(0,12000)||null;
+      const headline=contact.headline||discovery.headline;
+      const capital=inferNetworkCapital({headline,profileContext});
+      await query(`UPDATE admin_network_contacts SET headline=$1,profile_context=$2,network_capital_score=$3,network_capital_evidence=$4::jsonb,
+        network_capital_confidence=$5,public_enrichment_status='enriched',public_identity_confidence=$6,public_sources=$7::jsonb,public_enriched_at=now(),updated_at=now()
+        WHERE id=$8 AND administrator_id=$9`,[headline,profileContext,capital.score,JSON.stringify(capital.evidence),Math.min(capital.confidence,discovery.identityConfidence),discovery.identityConfidence,JSON.stringify(sources),contact.id,administratorId]);
+      enriched++;
+    } catch {
+      failed++;
+      await query(`UPDATE admin_network_contacts SET public_enrichment_status='failed',public_enriched_at=now(),updated_at=now() WHERE id=$1 AND administrator_id=$2`,[contact.id,administratorId]);
+    }
+  }));
+  return {processed:contacts.length,enriched,unconfirmed,failed};
 }
 
 export async function replaceAdminNetworkContacts(administratorId: string, contacts: Array<{ name:string; headline?:string|null; linkedinUrl?:string|null; phone?:string|null; source?:string; profileContext?:string|null; networkCapitalScore?:number; networkCapitalEvidence?:string[]; networkCapitalConfidence?:number }>): Promise<void> {

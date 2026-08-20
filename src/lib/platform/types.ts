@@ -55,6 +55,8 @@ export type AdminNetworkContact = {
   id: string; administratorId: string; ownerName: string; name: string; headline: string | null;
   linkedinUrl: string | null; phone: string | null; source: string; createdAt: string; profileContext: string | null;
   networkCapitalScore: number; networkCapitalEvidence: string[]; networkCapitalConfidence: number;
+  publicEnrichmentStatus: "pending" | "enriched" | "unconfirmed" | "failed";
+  publicIdentityConfidence: number; publicSources: Array<{url:string;title:string;excerpt:string|null}>; publicEnrichedAt: string | null;
 };
 export type RecommendationKind = "candidate_fit" | "connector_fit";
 export type NetworkRecommendation = {

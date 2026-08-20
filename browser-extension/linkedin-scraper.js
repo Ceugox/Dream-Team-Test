@@ -29,7 +29,7 @@ function collectVisibleConnections() {
     const name = anchorText || imageAlt || lines.find(line => line.length > 2 && line.length < 120);
     if (!name || /linkedin|perfil|profile/i.test(name)) continue;
     const headline = lines.find(line => line !== name && line.length > 3 && line.length < 300 && !/conexão|connection|mensagem|message|remover|remove/i.test(line)) || "";
-    contacts.set(linkedinUrl, { name: name.slice(0, 160), headline: headline.slice(0, 500), linkedinUrl });
+    contacts.set(linkedinUrl, { name: name.slice(0, 160), headline: headline.slice(0, 500), profileUrl: linkedinUrl, linkedinUrl });
   }
   return [...contacts.values()];
 }

@@ -1,0 +1,11 @@
+[
+  {
+    "name": "Nome do contato",
+    "headline": "Cargo atual · Empresa atual",
+    "profileUrl": "https://www.linkedin.com/in/perfil",
+    "phone": "+55 11 98765-4321",
+    "education": ["Instituição · Curso", "Instituição · MBA"],
+    "experience": ["Empresa anterior · Cargo", "Empresa anterior · Cargo"],
+    "internationalExperience": "Experiência profissional no exterior, se explicitamente conhecida"
+  }
+]

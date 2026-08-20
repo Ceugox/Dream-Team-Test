@@ -53,7 +53,8 @@ export type Referral = {
 export type Administrator = { id: string; name: string; email: string; createdAt: string };
 export type AdminNetworkContact = {
   id: string; administratorId: string; ownerName: string; name: string; headline: string | null;
-  linkedinUrl: string | null; phone: string | null; source: string; createdAt: string;
+  linkedinUrl: string | null; phone: string | null; source: string; createdAt: string; profileContext: string | null;
+  networkCapitalScore: number; networkCapitalEvidence: string[]; networkCapitalConfidence: number;
 };
 export type RecommendationKind = "candidate_fit" | "connector_fit";
 export type NetworkRecommendation = {

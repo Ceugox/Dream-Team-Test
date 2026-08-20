@@ -1,6 +1,9 @@
 import { z } from "zod";
 import type { JobProfile } from "../domain/job";
 import { normalizePhone } from "./whatsapp";
+import { inferNetworkCapital } from "./networkCapital";
+
+const TextOrList = z.union([z.string().max(4000),z.array(z.string().max(500)).max(30)]);
 
 const ContactSchema = z.object({
   name: z.string().trim().min(2).max(160),
@@ -8,9 +11,15 @@ const ContactSchema = z.object({
   profileUrl: z.string().url().max(1000).optional(),
   linkedinUrl: z.string().url().max(1000).optional(),
   phone: z.string().max(40).optional(),
+  profileContext: z.string().trim().max(4000).optional(),
+  education: TextOrList.optional(),
+  experience: TextOrList.optional(),
+  internationalExperience: z.union([z.boolean(),z.string().max(500)]).optional(),
 });
 
-export type AdminNetworkInput = { name:string; headline:string|null; linkedinUrl:string|null; phone:string|null; source:string };
+export type AdminNetworkInput = { name:string; headline:string|null; linkedinUrl:string|null; phone:string|null; source:string; profileContext:string|null; networkCapitalScore:number; networkCapitalEvidence:string[]; networkCapitalConfidence:number };
+
+function text(value:string|string[]|undefined):string{return Array.isArray(value)?value.join(" · "):value?.trim()??"";}
 
 export function parseAdminNetworkFile(data: unknown): AdminNetworkInput[] {
   const parsed = z.array(ContactSchema).max(10000).parse(data);
@@ -19,12 +28,15 @@ export function parseAdminNetworkFile(data: unknown): AdminNetworkInput[] {
     const linkedinUrl = item.profileUrl ?? item.linkedinUrl ?? null;
     const key = linkedinUrl?.toLowerCase() ?? `${item.name}|${item.headline}`.toLowerCase();
     const previous=unique.get(key);
-    unique.set(key,{name:item.name,headline:item.headline||previous?.headline||null,linkedinUrl,phone:item.phone?normalizePhone(item.phone):previous?.phone??null,source:"linkedin"});
+    const profileContext=[item.profileContext,text(item.education),text(item.experience),item.internationalExperience===true?"Experiência internacional":typeof item.internationalExperience==="string"?item.internationalExperience:"",previous?.profileContext].filter(Boolean).join(" · ")||null;
+    const headline=item.headline||previous?.headline||null;
+    const capital=inferNetworkCapital({headline,profileContext});
+    unique.set(key,{name:item.name,headline,linkedinUrl,phone:item.phone?normalizePhone(item.phone):previous?.phone??null,source:"linkedin",profileContext,networkCapitalScore:capital.score,networkCapitalEvidence:capital.evidence,networkCapitalConfidence:capital.confidence});
   }
   return [...unique.values()];
 }
 
-export function scoreConnectorFit(contact: { headline:string|null }, job: JobProfile): { score:number; evidence:string[] } {
+export function scoreConnectorFit(contact: { headline:string|null; profileContext?:string|null; networkCapitalScore?:number; networkCapitalEvidence?:string[] }, job: JobProfile): { score:number; evidence:string[] } {
   const text = (contact.headline ?? "").toLowerCase();
   const evidence:string[] = [];
   let score = 0.12;
@@ -33,5 +45,7 @@ export function scoreConnectorFit(contact: { headline:string|null }, job: JobPro
   if (job.industry && text.includes(job.industry.toLowerCase())) { score += .16; evidence.push(`Experiência no setor ${job.industry}`); }
   const roleTerms = job.title.toLowerCase().split(/\s+/).filter(term=>term.length>3);
   if (roleTerms.some(term=>text.includes(term))) { score += .12; evidence.push("Proximidade com o núcleo da vaga"); }
+  const capital=contact.networkCapitalScore??inferNetworkCapital({headline:contact.headline,profileContext:contact.profileContext??null}).score;
+  if(capital>0){score+=Math.min(.32,capital*.32);evidence.push(...(contact.networkCapitalEvidence??inferNetworkCapital({headline:contact.headline,profileContext:contact.profileContext??null}).evidence));}
   return {score:Math.min(1,score),evidence};
 }

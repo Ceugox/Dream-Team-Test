@@ -119,4 +119,10 @@ Configure `DATABASE_URL`, `APP_SECRET`, `ADMIN_ACCESS_KEY` e `OPENROUTER_API_KEY
 
 As inferências analisam a vaga e reranqueiam somente os melhores resultados do motor determinístico. Perfis são enviados com identificadores opacos e sem nome, telefone, e-mail ou URL. Se o OpenRouter estiver indisponível, o ranking determinístico continua funcionando.
 
+### Capital de rede
+
+O matching de conectores reconhece sinais profissionais explícitos de formação, empresas anteriores e experiência internacional. O JSON administrativo pode incluir `education`, `experience`, `internationalExperience` ou `profileContext`; há um modelo em `public/network-profile-template.json`.
+
+Esses sinais têm contribuição limitada, são exibidos com evidência e confiança e influenciam somente a hipótese de que alguém possa conhecer bons candidatos. Não elevam o fit de candidato, não substituem avaliação profissional e a ausência de pedigree reconhecido nunca reduz a pontuação.
+
 Google Contacts e Calendar estão apresentados como integrações futuras porque exigem credenciais OAuth do proprietário do produto. Nenhum dado fictício dessas fontes é exibido na experiência entregue.

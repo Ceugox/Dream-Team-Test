@@ -56,7 +56,7 @@ export async function inferJobIntelligence(job: Job): Promise<StructuredInferenc
 }
 
 export type InferenceMatchInput = {
-  id: string; kind: RecommendationKind; headline: string | null; baseScore: number; deterministicEvidence: string[];
+  id: string; kind: RecommendationKind; headline: string | null; professionalContext?:string|null; networkCapitalEvidence?:string[]; baseScore: number; deterministicEvidence: string[];
 };
 export type InferenceMatch = z.infer<typeof MatchSchema>["matches"][number];
 
@@ -67,11 +67,11 @@ export async function inferMatchRanking(job: Job, intelligence: JobIntelligence,
     schemaName: "match_ranking",
     schema: matchJsonSchema,
     validator: MatchSchema.transform(value => value.matches),
-    system: "Você reranqueia perfis profissionais para uma vaga. Receberá apenas identificadores opacos e headlines, sem nomes ou contatos. Não presuma competências sem evidência: reduza a confiança e liste o dado faltante. Candidate_fit mede aderência direta; connector_fit mede probabilidade de conhecer alguém adequado. Responda em português.",
+    system: "Você reranqueia perfis profissionais para uma vaga. Receberá apenas identificadores opacos e contexto profissional, sem nomes ou contatos. Não presuma competências sem evidência: reduza a confiança e liste o dado faltante. Formação, empresas reconhecidas e experiência internacional podem elevar somente connector_fit como sinais de alcance da rede; nunca trate pedigree como prova de competência ou use esses sinais para elevar candidate_fit. Candidate_fit mede aderência direta; connector_fit mede probabilidade de conhecer alguém adequado. Responda em português.",
     payload: {
       job: { title: job.title, location: job.location, intelligence },
       profiles: matches.map(match => ({
-        id: reverse.get(match.id + match.kind), kind: match.kind, headline: match.headline,
+        id: reverse.get(match.id + match.kind), kind: match.kind, headline: match.headline,professionalContext:match.professionalContext,networkCapitalEvidence:match.networkCapitalEvidence,
         baseScore: match.baseScore, deterministicEvidence: match.deterministicEvidence,
       })),
     },

@@ -19,10 +19,11 @@ describe("OpenRouter inference",()=>{
     const fetchMock=vi.fn().mockResolvedValue(new Response(JSON.stringify({model:"deepseek/test",choices:[{message:{content:JSON.stringify({matches:[{id:"p1",kind:"candidate_fit",score:.91,confidence:.82,insight:"Experiência diretamente aderente.",evidence:["Go no headline"],missingInformation:[]}]})}}]}),{status:200}));
     vi.stubGlobal("fetch",fetchMock);
     const intelligence:JobIntelligence={summary:"Backend",coreSkills:["Go"],adjacentRoles:[],industries:[],seniority:"Staff",missingInformation:[]};
-    const result=await inferMatchRanking(job,intelligence,[{id:"real-contact-id",kind:"candidate_fit",headline:"Staff Engineer · Go",baseScore:.7,deterministicEvidence:["Cargo relacionado"]}]);
+    const result=await inferMatchRanking(job,intelligence,[{id:"real-contact-id",kind:"candidate_fit",headline:"Staff Engineer · Go",professionalContext:"Formação USP",networkCapitalEvidence:["Formação Tier B (USP/UNICAMP)"],baseScore:.7,deterministicEvidence:["Cargo relacionado"]}]);
     const body=JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
     expect(JSON.stringify(body)).not.toContain("real-contact-id");
     expect(body.messages[1].content).not.toContain("phone");
+    expect(body.messages[1].content).toContain("Formação Tier B");
     expect(body.reasoning).toEqual({enabled:false});
     expect(result.data[0].id).toBe("real-contact-id");
   });

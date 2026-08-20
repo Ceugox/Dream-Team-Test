@@ -191,30 +191,34 @@ export async function getAdministrator(id: string): Promise<Administrator | null
 
 export async function listAdminNetworkContacts(administratorId?: string): Promise<AdminNetworkContact[]> {
   return query<AdminNetworkContact>(`SELECT c.id,c.administrator_id AS "administratorId",a.name AS "ownerName",c.name,c.headline,
-    c.linkedin_url AS "linkedinUrl",c.phone,c.source,c.created_at::text AS "createdAt"
+    c.linkedin_url AS "linkedinUrl",c.phone,c.source,c.created_at::text AS "createdAt",c.profile_context AS "profileContext",
+    c.network_capital_score AS "networkCapitalScore",c.network_capital_evidence AS "networkCapitalEvidence",c.network_capital_confidence AS "networkCapitalConfidence"
     FROM admin_network_contacts c JOIN administrators a ON a.id=c.administrator_id
     WHERE c.organization_id=$1 AND ($2::uuid IS NULL OR c.administrator_id=$2)
     ORDER BY c.created_at DESC`, [orgId,administratorId ?? null]);
 }
 
-export async function replaceAdminNetworkContacts(administratorId: string, contacts: Array<{ name:string; headline?:string|null; linkedinUrl?:string|null; phone?:string|null; source?:string }>): Promise<void> {
+export async function replaceAdminNetworkContacts(administratorId: string, contacts: Array<{ name:string; headline?:string|null; linkedinUrl?:string|null; phone?:string|null; source?:string; profileContext?:string|null; networkCapitalScore?:number; networkCapitalEvidence?:string[]; networkCapitalConfidence?:number }>): Promise<void> {
   await transaction(async client => {
     for (const contact of contacts) {
       if (contact.linkedinUrl) await client.query(`INSERT INTO admin_network_contacts
-        (organization_id,administrator_id,name,headline,linkedin_url,phone,source) VALUES ($1,$2,$3,$4,$5,$6,$7)
+        (organization_id,administrator_id,name,headline,linkedin_url,phone,source,profile_context,network_capital_score,network_capital_evidence,network_capital_confidence) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11)
         ON CONFLICT (administrator_id,linkedin_url) WHERE linkedin_url IS NOT NULL DO UPDATE SET
-        name=excluded.name,headline=excluded.headline,phone=coalesce(excluded.phone,admin_network_contacts.phone),updated_at=now()`,
-        [orgId,administratorId,contact.name,contact.headline||null,contact.linkedinUrl,contact.phone||null,contact.source??"linkedin"]);
+        name=excluded.name,headline=excluded.headline,phone=coalesce(excluded.phone,admin_network_contacts.phone),profile_context=coalesce(excluded.profile_context,admin_network_contacts.profile_context),
+        network_capital_score=greatest(excluded.network_capital_score,admin_network_contacts.network_capital_score),
+        network_capital_evidence=case when jsonb_array_length(excluded.network_capital_evidence)>0 then excluded.network_capital_evidence else admin_network_contacts.network_capital_evidence end,
+        network_capital_confidence=greatest(excluded.network_capital_confidence,admin_network_contacts.network_capital_confidence),updated_at=now()`,
+        [orgId,administratorId,contact.name,contact.headline||null,contact.linkedinUrl,contact.phone||null,contact.source??"linkedin",contact.profileContext??null,contact.networkCapitalScore??0,JSON.stringify(contact.networkCapitalEvidence??[]),contact.networkCapitalConfidence??0]);
       else await client.query(`INSERT INTO admin_network_contacts
-        (organization_id,administrator_id,name,headline,phone,source) VALUES ($1,$2,$3,$4,$5,$6)`,
-        [orgId,administratorId,contact.name,contact.headline||null,contact.phone||null,contact.source??"linkedin"]);
+        (organization_id,administrator_id,name,headline,phone,source,profile_context,network_capital_score,network_capital_evidence,network_capital_confidence) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10)`,
+        [orgId,administratorId,contact.name,contact.headline||null,contact.phone||null,contact.source??"linkedin",contact.profileContext??null,contact.networkCapitalScore??0,JSON.stringify(contact.networkCapitalEvidence??[]),contact.networkCapitalConfidence??0]);
     }
   });
 }
 
-export async function addAdminNetworkContact(administratorId: string, contact: { name:string; headline?:string; linkedinUrl?:string; phone?:string }): Promise<void> {
-  await query(`INSERT INTO admin_network_contacts (organization_id,administrator_id,name,headline,linkedin_url,phone,source)
-    VALUES ($1,$2,$3,$4,$5,$6,'manual')`, [orgId,administratorId,contact.name,contact.headline||null,contact.linkedinUrl||null,contact.phone||null]);
+export async function addAdminNetworkContact(administratorId: string, contact: { name:string; headline?:string; linkedinUrl?:string; phone?:string; profileContext?:string; networkCapitalScore?:number; networkCapitalEvidence?:string[]; networkCapitalConfidence?:number }): Promise<void> {
+  await query(`INSERT INTO admin_network_contacts (organization_id,administrator_id,name,headline,linkedin_url,phone,source,profile_context,network_capital_score,network_capital_evidence,network_capital_confidence)
+    VALUES ($1,$2,$3,$4,$5,$6,'manual',$7,$8,$9::jsonb,$10)`, [orgId,administratorId,contact.name,contact.headline||null,contact.linkedinUrl||null,contact.phone||null,contact.profileContext||null,contact.networkCapitalScore??0,JSON.stringify(contact.networkCapitalEvidence??[]),contact.networkCapitalConfidence??0]);
 }
 
 export async function updateAdminContactPhone(administratorId: string, id: string, phone: string): Promise<void> {
@@ -238,7 +242,7 @@ export async function refreshAdminRecommendations(jobId: string): Promise<number
     const intelligence=await getOrCreateJobIntelligence(job);
     if(intelligence&&recommendations.length){
       const contactsById=new Map(contacts.map(contact=>[contact.id,contact]));
-      const candidates=recommendations.slice(0,30).map(item=>({id:item.contactId,kind:item.kind,headline:contactsById.get(item.contactId)?.headline??null,baseScore:item.score,deterministicEvidence:item.evidence}));
+      const candidates=recommendations.slice(0,30).map(item=>{const contact=contactsById.get(item.contactId);return {id:item.contactId,kind:item.kind,headline:contact?.headline??null,professionalContext:contact?.profileContext??null,networkCapitalEvidence:contact?.networkCapitalEvidence??[],baseScore:item.score,deterministicEvidence:item.evidence};});
       const inferred=await inferMatchRanking(job,intelligence.analysis,candidates);
       const inferredById=new Map(inferred.data.map(item=>[`${item.id}:${item.kind}`,item]));
       recommendations=recommendations.map(item=>{

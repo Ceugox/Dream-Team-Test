@@ -3,7 +3,7 @@ import { buildAdminRecommendations } from "./adminMatching";
 import type { AdminNetworkContact, Job } from "./types";
 
 const job:Job={id:"job",title:"Staff Backend Engineer",company:"Nubank",location:"São Paulo",description:"Required: typescript, aws, distributed systems. Fintech.",status:"open",createdAt:"2026-01-01",referralCount:0};
-const base={administratorId:"admin",ownerName:"Marina",linkedinUrl:null,phone:"5511999999999",source:"linkedin",createdAt:"2026-01-01"};
+const base={administratorId:"admin",ownerName:"Marina",linkedinUrl:null,phone:"5511999999999",source:"linkedin",createdAt:"2026-01-01",profileContext:null,networkCapitalScore:0,networkCapitalEvidence:[],networkCapitalConfidence:0};
 
 describe("admin matching",()=>{
   it("separates potential candidates and connectors",()=>{

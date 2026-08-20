@@ -1,18 +1,24 @@
 import type { PoolClient } from "pg";
 import { z } from "zod";
+import { readLinkedInConfig } from "../linkedin/config";
+import type { LinkedInOwner } from "../linkedin/types";
 import { DEFAULT_ORGANIZATION_ID, query, transaction } from "../platform/db";
+import { buildInventoryTaskSpec, buildLinkedInProfilePlan } from "./linkedinQueue";
 
-export type OrchestrationTaskType="job_analysis"|"profile_enrichment"|"match_rerank";
+export type OrchestrationTaskType="job_analysis"|"profile_enrichment"|"match_rerank"|"linkedin_inventory"|"linkedin_profile_collect"|"linkedin_finalize";
 export type OrchestrationTask={id:string;workflowId:string;taskType:OrchestrationTaskType;payload:unknown;tokenBudget:number;timeoutSeconds:number;attempts:number;maxAttempts:number};
 export type WorkflowStatus="pending"|"running"|"completed"|"failed"|"cancelled";
-export type WorkflowListItem={id:string;kind:"job_activation"|"network_enrichment";entityType:string;entityId:string;status:WorkflowStatus;tokenBudget:number;estimatedCostUsd:number;taskCount:number;completedTasks:number;failedTasks:number;promptTokens:number;completionTokens:number;createdAt:string;completedAt:string|null;error:string|null};
+export type WorkflowListItem={id:string;kind:"job_activation"|"network_enrichment"|"linkedin_sync";entityType:string;entityId:string;status:WorkflowStatus;tokenBudget:number;estimatedCostUsd:number;taskCount:number;completedTasks:number;failedTasks:number;promptTokens:number;completionTokens:number;createdAt:string;completedAt:string|null;error:string|null};
 
 const TaskResultSchema=z.object({model:z.string().optional(),promptTokens:z.number().int().nonnegative().optional(),completionTokens:z.number().int().nonnegative().optional()}).passthrough();
 
-async function insertTask(client:PoolClient,input:{workflowId:string;taskType:OrchestrationTaskType;payload:unknown;dependsOn?:string[];tokenBudget:number;timeoutSeconds?:number;priority?:number}):Promise<string>{
+async function insertTask(client:PoolClient,input:{workflowId:string;taskType:OrchestrationTaskType;payload:unknown;dependsOn?:string[];tokenBudget:number;timeoutSeconds?:number;priority?:number;idempotencyKey?:string}):Promise<string>{
+  const idempotencyKey=input.idempotencyKey??`${input.workflowId}:${input.taskType}:${crypto.randomUUID()}`;
   const rows=await client.query<{id:string}>(`INSERT INTO orchestration_tasks (workflow_id,task_type,payload,depends_on,idempotency_key,token_budget,timeout_seconds,priority)
-    VALUES ($1,$2,$3::jsonb,$4::uuid[],$5,$6,$7,$8) RETURNING id`,[input.workflowId,input.taskType,JSON.stringify(input.payload),input.dependsOn??[],`${input.workflowId}:${input.taskType}:${crypto.randomUUID()}`,input.tokenBudget,input.timeoutSeconds??60,input.priority??100]);
-  return rows.rows[0].id;
+    VALUES ($1,$2,$3::jsonb,$4::uuid[],$5,$6,$7,$8) ON CONFLICT (idempotency_key) DO NOTHING RETURNING id`,[input.workflowId,input.taskType,JSON.stringify(input.payload),input.dependsOn??[],idempotencyKey,input.tokenBudget,input.timeoutSeconds??60,input.priority??100]);
+  if(rows.rows[0])return rows.rows[0].id;
+  const existing=await client.query<{id:string}>(`SELECT id FROM orchestration_tasks WHERE idempotency_key=$1`,[idempotencyKey]);
+  return existing.rows[0].id;
 }
 
 export async function enqueueJobWorkflow(jobId:string,requestedBy?:string):Promise<string>{
@@ -23,6 +29,42 @@ export async function enqueueJobWorkflow(jobId:string,requestedBy?:string):Promi
     const analysisId=await insertTask(client,{workflowId:workflow.id,taskType:"job_analysis",payload:{jobId},tokenBudget:1200,timeoutSeconds:35,priority:50});
     await insertTask(client,{workflowId:workflow.id,taskType:"match_rerank",payload:{jobId},dependsOn:[analysisId],tokenBudget:2400,timeoutSeconds:55,priority:70});
     return workflow.id;
+  });
+}
+
+export async function enqueueLinkedInSyncWorkflow(sessionId:string,owner:LinkedInOwner):Promise<string>{
+  return transaction(async client=>{
+    const workflow=(await client.query<{id:string}>(`INSERT INTO orchestration_workflows (organization_id,kind,entity_type,entity_id,token_budget,estimated_cost_usd,requested_by)
+      VALUES ($1,'linkedin_sync','linkedin_session',$2,$3,.02,NULL) RETURNING id`,[DEFAULT_ORGANIZATION_ID,sessionId,24000])).rows[0];
+    const config=readLinkedInConfig();
+    const spec=buildInventoryTaskSpec(sessionId,owner,config.loginTimeoutMs);
+    await insertTask(client,{workflowId:workflow.id,taskType:spec.taskType,payload:spec.payload,tokenBudget:spec.tokenBudget,timeoutSeconds:spec.timeoutSeconds,priority:spec.priority,idempotencyKey:spec.idempotencyKey});
+    return workflow.id;
+  });
+}
+
+export async function enqueueLinkedInProfileTasks(workflowId:string,sessionId:string,owner:LinkedInOwner,profileUrls:string[]):Promise<number>{
+  return transaction(async client=>{
+    const plan=buildLinkedInProfilePlan(sessionId,owner,profileUrls);
+    const profileIds:string[]=[];
+    // Encadeia perfil a perfil: a página remota é uma só e a coleta precisa ser serializada por sessão.
+    for(const spec of plan.profiles){
+      const previous=profileIds.at(-1);
+      profileIds.push(await insertTask(client,{workflowId,taskType:spec.taskType,payload:spec.payload,dependsOn:previous?[previous]:[],tokenBudget:spec.tokenBudget,timeoutSeconds:spec.timeoutSeconds,priority:spec.priority,idempotencyKey:spec.idempotencyKey}));
+    }
+    await insertTask(client,{workflowId,taskType:plan.finalize.taskType,payload:plan.finalize.payload,dependsOn:profileIds,tokenBudget:plan.finalize.tokenBudget,timeoutSeconds:plan.finalize.timeoutSeconds,priority:plan.finalize.priority,idempotencyKey:plan.finalize.idempotencyKey});
+    return plan.profiles.length;
+  });
+}
+
+export async function cancelLinkedInWorkflow(workflowId:string,reason:string):Promise<number>{
+  const message=reason.slice(0,200);
+  return transaction(async client=>{
+    const cancelled=await client.query(`UPDATE orchestration_tasks SET status='cancelled',error=$1,completed_at=now(),updated_at=now()
+      WHERE workflow_id=$2 AND status IN ('pending','retry')`,[message,workflowId]);
+    await client.query(`UPDATE orchestration_workflows SET status='cancelled',error=$1,completed_at=now(),updated_at=now()
+      WHERE id=$2 AND status NOT IN ('completed','failed')`,[message,workflowId]);
+    return cancelled.rowCount??0;
   });
 }
 

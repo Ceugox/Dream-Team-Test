@@ -1,7 +1,7 @@
 import { MetricCard, PageHeader } from "@/components/platform/AppShell";
 import { listWorkflows } from "@/lib/orchestration/orchestrator";
 
-const labels={job_activation:"Ativação de vaga",network_enrichment:"Enriquecimento de rede"};
+const labels={job_activation:"Ativação de vaga",network_enrichment:"Enriquecimento de rede",linkedin_sync:"Sincronização LinkedIn"};
 const statusLabel={pending:"Na fila",running:"Executando",completed:"Concluído",failed:"Falhou",cancelled:"Cancelado"};
 const statusColor={pending:"text-[var(--amber)]",running:"text-[#8ea7ff]",completed:"text-[var(--green)]",failed:"text-[var(--danger)]",cancelled:"text-[var(--muted)]"};
 

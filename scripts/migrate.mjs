@@ -310,6 +310,18 @@ CREATE TABLE IF NOT EXISTS orchestration_tasks (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+ALTER TABLE orchestration_workflows DROP CONSTRAINT IF EXISTS orchestration_workflows_kind_check;
+ALTER TABLE orchestration_workflows ADD CONSTRAINT orchestration_workflows_kind_check
+  CHECK (kind IN ('job_activation','network_enrichment','linkedin_sync'));
+
+ALTER TABLE orchestration_tasks DROP CONSTRAINT IF EXISTS orchestration_tasks_task_type_check;
+ALTER TABLE orchestration_tasks ADD CONSTRAINT orchestration_tasks_task_type_check
+  CHECK (task_type IN ('job_analysis','profile_enrichment','match_rerank','linkedin_inventory','linkedin_profile_collect','linkedin_finalize'));
+
+ALTER TABLE orchestration_tasks DROP CONSTRAINT IF EXISTS orchestration_tasks_timeout_seconds_check;
+ALTER TABLE orchestration_tasks ADD CONSTRAINT orchestration_tasks_timeout_seconds_check
+  CHECK (timeout_seconds BETWEEN 5 AND 3600);
+
 CREATE INDEX IF NOT EXISTS orchestration_workflows_org_created_idx ON orchestration_workflows(organization_id,created_at DESC);
 CREATE INDEX IF NOT EXISTS orchestration_tasks_claim_idx ON orchestration_tasks(status,available_at,priority,created_at);
 CREATE INDEX IF NOT EXISTS orchestration_tasks_workflow_idx ON orchestration_tasks(workflow_id,status);

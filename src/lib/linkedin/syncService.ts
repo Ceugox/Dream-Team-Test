@@ -25,6 +25,10 @@ const PROFILE_SNAPSHOT_SCHEMA_VERSION = 1;
 
 type FinalStatus = Extract<LinkedInSessionStatus, "completed" | "cancelled" | "failed" | "expired">;
 
+const FINAL_STATUSES: LinkedInSessionStatus[] = ["completed", "cancelled", "failed", "expired"];
+const PAUSED_STATUSES: LinkedInSessionStatus[] = ["needs_attention", "paused_rate_limit"];
+const ENRICHABLE_STATUSES: LinkedInSessionStatus[] = ["enriching", "results_available"];
+
 export interface SyncRepository {
   createSessionWithCapacity(owner: LinkedInOwner, input: {
     expiresAt: Date;
@@ -128,6 +132,11 @@ function snapshotInput(sessionId: string, linkedinUrl: string, profile: Professi
   };
 }
 
+export interface InventoryStageResult {
+  session: LinkedInSession | null;
+  profileUrls: string[];
+}
+
 export function createLinkedInSyncService(dependencies: SyncServiceDependencies) {
   const {
     config,
@@ -144,6 +153,12 @@ export function createLinkedInSyncService(dependencies: SyncServiceDependencies)
     random = Math.random,
     loginPollMs = 3000,
   } = dependencies;
+
+  const failSafely = (owner: LinkedInOwner, sessionId: string): Promise<LinkedInSession | null> =>
+    repository.transitionOwnedSession(owner, sessionId, "failed", {
+      failureCode: "sync_error",
+      failureMessageSafe: "LinkedIn sync stopped unexpectedly",
+    }).catch(() => repository.markFinished(owner, sessionId, "failed"));
 
   async function createInteractiveSession(owner: LinkedInOwner, input: { consent: boolean }): Promise<{
     session: PublicLinkedInSession;
@@ -171,117 +186,169 @@ export function createLinkedInSyncService(dependencies: SyncServiceDependencies)
     }
   }
 
-  async function runCollection(
+  async function runInventoryStage(
     owner: LinkedInOwner,
     sessionId: string,
     options: { signal?: AbortSignal } = {},
-  ): Promise<LinkedInSession | null> {
+  ): Promise<InventoryStageResult> {
     const session = await repository.findOwnedSession(owner, sessionId);
-    if (!session) return null;
-    if (session.status !== "awaiting_login") throw new Error("LINKEDIN_SESSION_INVALID_STATE");
+    if (!session) return { session: null, profileUrls: [] };
+    if (session.status !== "awaiting_login") return { session, profileUrls: [] };
     const reference = session.providerSessionReference;
     if (!reference) {
-      return await repository.transitionOwnedSession(owner, sessionId, "failed", {
+      const failed = await repository.transitionOwnedSession(owner, sessionId, "failed", {
         failureCode: "missing_reference",
         failureMessageSafe: "LinkedIn session reference is unavailable",
       });
+      return { session: failed, profileUrls: [] };
     }
 
     const handle = await provider.connect(reference);
     let destroyReference = false;
-    let hasEarlyResults = false;
-
-    const finish = async (status: FinalStatus, failureCode?: string): Promise<LinkedInSession | null> => {
+    const finish = async (status: FinalStatus): Promise<LinkedInSession | null> => {
       destroyReference = true;
-      if (failureCode) {
-        return await repository.transitionOwnedSession(owner, sessionId, status, {
-          failureCode,
-          failureMessageSafe: null,
-        }).catch(() => repository.markFinished(owner, sessionId, status));
-      }
       return repository.markFinished(owner, sessionId, status);
-    };
-
-    const pause = async (reason: string): Promise<LinkedInSession | null> => {
-      if (hasEarlyResults) {
-        // results_available não tem aresta para pausa: encerra parcial com o motivo registrado.
-        destroyReference = true;
-        return repository.transitionOwnedSession(owner, sessionId, "completed", { failureCode: reason });
-      }
-      const status = reason === "rate_limit" ? "paused_rate_limit" : "needs_attention";
-      return repository.transitionOwnedSession(owner, sessionId, status, { failureCode: reason });
     };
 
     try {
       const loginDeadline = Math.min(now().getTime() + config.loginTimeoutMs, session.expiresAt.getTime());
       while (!(await readAuthentication(handle.page))) {
-        if (options.signal?.aborted) return await finish("cancelled");
-        if (now().getTime() >= loginDeadline) return await finish("expired");
+        if (options.signal?.aborted) return { session: await finish("cancelled"), profileUrls: [] };
+        if (now().getTime() >= loginDeadline) return { session: await finish("expired"), profileUrls: [] };
         await delay(loginPollMs);
       }
       await handle.closeInteractiveUrl();
-      if (now().getTime() >= session.expiresAt.getTime()) return await finish("expired");
+      if (now().getTime() >= session.expiresAt.getTime()) return { session: await finish("expired"), profileUrls: [] };
       await repository.transitionOwnedSession(owner, sessionId, "authenticated");
       await repository.transitionOwnedSession(owner, sessionId, "inventorying");
 
       await handle.page.goto(CONNECTIONS_URL, { waitUntil: "domcontentloaded" });
       const inventory = await collectInventory(handle.page, { signal: options.signal, delayMs: config.profileDelayMinMs, now });
       if (inventory.status === "stopped") {
-        if (inventory.reason === "aborted") return await finish("cancelled");
-        return await pause(inventory.reason);
+        if (inventory.reason === "aborted") return { session: await finish("cancelled"), profileUrls: [] };
+        const status = inventory.reason === "rate_limit" ? "paused_rate_limit" : "needs_attention";
+        const paused = await repository.transitionOwnedSession(owner, sessionId, status, { failureCode: inventory.reason });
+        return { session: paused, profileUrls: [] };
       }
       await persistInventory(owner, inventory.entries);
       for (let index = 0; index < inventory.entries.length; index += 1) {
         await repository.saveInventoryContact(owner, sessionId);
       }
-      await repository.transitionOwnedSession(owner, sessionId, "enriching");
+      const enriching = await repository.transitionOwnedSession(owner, sessionId, "enriching");
 
       const jobs = await listOpenJobs();
       const ordered = prioritizeInventory(inventory.entries, jobs);
-
-      for (const entry of ordered) {
-        const profileUrl = entry.profileUrl.value;
-        if (!profileUrl) continue;
-        if (options.signal?.aborted) return await finish("cancelled");
-        if (now().getTime() >= session.expiresAt.getTime()) return await finish("expired");
-        const spread = Math.max(0, config.profileDelayMaxMs - config.profileDelayMinMs);
-        const delayMs = config.profileDelayMinMs + Math.floor(random() * (spread + 1));
-        const result = await collectProfile(handle.page, profileUrl, { signal: options.signal, delayMs, now });
-        if (result.status === "stopped") {
-          if (result.reason === "aborted") return await finish("cancelled");
-          if (result.reason === "invalid_profile_url") {
-            await repository.recordEnrichmentResult(owner, sessionId, "failed");
-            continue;
-          }
-          return await pause(result.reason);
-        }
-        await repository.saveProfileSnapshot(owner, snapshotInput(sessionId, profileUrl, result.profile));
-        await persistProfile(owner, result.profile);
-        await repository.recordEnrichmentResult(owner, sessionId, "enriched");
-        if (!hasEarlyResults) {
-          hasEarlyResults = true;
-          await repository.transitionOwnedSession(owner, sessionId, "results_available");
-        }
-      }
-
-      if (!hasEarlyResults) await repository.transitionOwnedSession(owner, sessionId, "results_available");
-      return await finish("completed");
+      const profileUrls = ordered
+        .map((entry) => entry.profileUrl.value)
+        .filter((url): url is string => Boolean(url));
+      return { session: enriching, profileUrls };
     } catch {
       destroyReference = true;
-      return await repository.transitionOwnedSession(owner, sessionId, "failed", {
-        failureCode: "sync_error",
-        failureMessageSafe: "LinkedIn sync stopped unexpectedly",
-      }).catch(() => repository.markFinished(owner, sessionId, "failed"));
+      return { session: await failSafely(owner, sessionId), profileUrls: [] };
     } finally {
       await handle.disconnect().catch(() => undefined);
       if (destroyReference) await provider.destroy(reference).catch(() => undefined);
     }
   }
 
+  async function runProfileStage(
+    owner: LinkedInOwner,
+    sessionId: string,
+    profileUrl: string,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<LinkedInSession | null> {
+    const session = await repository.findOwnedSession(owner, sessionId);
+    if (!session) return null;
+    if (FINAL_STATUSES.includes(session.status) || PAUSED_STATUSES.includes(session.status)) return session;
+    if (!ENRICHABLE_STATUSES.includes(session.status)) return session;
+    const reference = session.providerSessionReference;
+    if (!reference) {
+      return repository.transitionOwnedSession(owner, sessionId, "failed", {
+        failureCode: "missing_reference",
+        failureMessageSafe: "LinkedIn session reference is unavailable",
+      });
+    }
+    const finishWithoutHandle = async (status: FinalStatus): Promise<LinkedInSession | null> => {
+      const finished = await repository.markFinished(owner, sessionId, status);
+      await provider.destroy(reference).catch(() => undefined);
+      return finished;
+    };
+    if (options.signal?.aborted) return finishWithoutHandle("cancelled");
+    if (now().getTime() >= session.expiresAt.getTime()) return finishWithoutHandle("expired");
+
+    const handle = await provider.connect(reference);
+    let destroyReference = false;
+
+    try {
+      const spread = Math.max(0, config.profileDelayMaxMs - config.profileDelayMinMs);
+      const delayMs = config.profileDelayMinMs + Math.floor(random() * (spread + 1));
+      const result = await collectProfile(handle.page, profileUrl, { signal: options.signal, delayMs, now });
+      if (result.status === "stopped") {
+        if (result.reason === "aborted") {
+          destroyReference = true;
+          return await repository.markFinished(owner, sessionId, "cancelled");
+        }
+        if (result.reason === "invalid_profile_url") {
+          return await repository.recordEnrichmentResult(owner, sessionId, "failed") ?? session;
+        }
+        if (session.status === "results_available") {
+          // results_available não tem aresta para pausa: encerra parcial com o motivo registrado.
+          destroyReference = true;
+          return await repository.transitionOwnedSession(owner, sessionId, "completed", { failureCode: result.reason });
+        }
+        const status = result.reason === "rate_limit" ? "paused_rate_limit" : "needs_attention";
+        return await repository.transitionOwnedSession(owner, sessionId, status, { failureCode: result.reason });
+      }
+      await repository.saveProfileSnapshot(owner, snapshotInput(sessionId, profileUrl, result.profile));
+      await persistProfile(owner, result.profile);
+      const updated = await repository.recordEnrichmentResult(owner, sessionId, "enriched");
+      if (session.status === "enriching") {
+        return await repository.transitionOwnedSession(owner, sessionId, "results_available") ?? updated;
+      }
+      return updated;
+    } catch {
+      destroyReference = true;
+      return await failSafely(owner, sessionId);
+    } finally {
+      await handle.disconnect().catch(() => undefined);
+      if (destroyReference) await provider.destroy(reference).catch(() => undefined);
+    }
+  }
+
+  async function finalizeStage(owner: LinkedInOwner, sessionId: string): Promise<LinkedInSession | null> {
+    const session = await repository.findOwnedSession(owner, sessionId);
+    if (!session) return null;
+    if (FINAL_STATUSES.includes(session.status)) return session;
+    if (!ENRICHABLE_STATUSES.includes(session.status)) return session;
+    const reference = session.providerSessionReference;
+    if (session.status === "enriching") {
+      await repository.transitionOwnedSession(owner, sessionId, "results_available");
+    }
+    const finished = await repository.markFinished(owner, sessionId, "completed");
+    if (reference) await provider.destroy(reference).catch(() => undefined);
+    return finished;
+  }
+
+  async function runCollection(
+    owner: LinkedInOwner,
+    sessionId: string,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<LinkedInSession | null> {
+    const inventory = await runInventoryStage(owner, sessionId, options);
+    if (!inventory.session) return null;
+    if (inventory.session.status !== "enriching") return inventory.session;
+    let current: LinkedInSession | null = inventory.session;
+    for (const profileUrl of inventory.profileUrls) {
+      current = await runProfileStage(owner, sessionId, profileUrl, options);
+      if (!current || !ENRICHABLE_STATUSES.includes(current.status)) return current;
+    }
+    return finalizeStage(owner, sessionId);
+  }
+
   async function cancelOwnedSession(owner: LinkedInOwner, sessionId: string): Promise<PublicLinkedInSession | null> {
     const session = await repository.findOwnedSession(owner, sessionId);
     if (!session) return null;
-    if (["completed", "cancelled", "failed", "expired"].includes(session.status)) return toPublicSession(session);
+    if (FINAL_STATUSES.includes(session.status)) return toPublicSession(session);
     const reference = session.providerSessionReference;
     const finished = await repository.markFinished(owner, sessionId, "cancelled") ?? session;
     if (reference) await provider.destroy(reference).catch(() => undefined);
@@ -298,7 +365,15 @@ export function createLinkedInSyncService(dependencies: SyncServiceDependencies)
     return sessions.length;
   }
 
-  return { createInteractiveSession, runCollection, cancelOwnedSession, expireOrphanedSessions };
+  return {
+    createInteractiveSession,
+    runInventoryStage,
+    runProfileStage,
+    finalizeStage,
+    runCollection,
+    cancelOwnedSession,
+    expireOrphanedSessions,
+  };
 }
 
 export type LinkedInSyncService = ReturnType<typeof createLinkedInSyncService>;

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { Job, JobIntelligence, RecommendationKind } from "@/lib/platform/types";
 import { inferStructured, type StructuredInference } from "./openrouter";
+import { inferStructuredGemini, isGeminiConfigured } from "./gemini";
 
 const JobIntelligenceSchema = z.object({
   summary: z.string().min(1).max(600),
@@ -45,14 +46,16 @@ const matchJsonSchema = {
 };
 
 export async function inferJobIntelligence(job: Job): Promise<StructuredInference<JobIntelligence>> {
-  return inferStructured({
+  const input={
     schemaName: "job_intelligence",
     schema: jobJsonSchema,
     validator: JobIntelligenceSchema,
     system: "Você analisa vagas para matching profissional. Extraia somente o que é sustentado pelo texto, diferencie requisitos de lacunas e responda em português. Não invente informações.",
     payload: { title: job.title, company: job.company, location: job.location, description: job.description },
     maxTokens: 900,
-  });
+  };
+  if(isGeminiConfigured())try{return await inferStructuredGemini(input);}catch{/* OpenRouter permanece como fallback operacional. */}
+  return inferStructured(input);
 }
 
 export type InferenceMatchInput = {

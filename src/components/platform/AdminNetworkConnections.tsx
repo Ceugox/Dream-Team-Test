@@ -26,7 +26,7 @@ export function AdminNetworkConnections(props: Props) {
         if (event.data.type === "rc:linkedin-extension-ready") {
           if (extensionTimer.current) clearTimeout(extensionTimer.current);
           setExtensionMissing(false);
-          setMessage("Conector encontrado. Abrindo sua rede no LinkedIn…");
+          setMessage("Conector encontrado. Abrindo a janela de login do LinkedIn…");
         } else if (event.data.type === "rc:linkedin-sync-progress") {
           setMessage(`${event.data.count ?? 0} conexões encontradas no navegador…`);
         } else if (event.data.type === "rc:linkedin-sync-complete") {
@@ -74,7 +74,7 @@ export function AdminNetworkConnections(props: Props) {
     <div className="mt-5 grid gap-3 md:grid-cols-2">
       <button type="button" disabled={linkedinSyncing} onClick={connectLinkedIn} className="group min-h-28 rounded-2xl border border-[#4d5b8a] bg-[#101526] p-4 text-left transition hover:border-[#8495dc] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a99cff] disabled:opacity-60">
         <span className="flex items-center justify-between gap-3"><span className="grid size-10 place-items-center rounded-xl bg-[#0a66c2] text-lg font-semibold text-white">in</span><span className={props.linkedinConnected ? "text-xs text-[var(--green)]" : "text-xs text-[var(--muted)]"}>{linkedinSyncing ? "Sincronizando…" : props.linkedinConnected ? `${props.linkedinCount} contatos` : "Não conectado"}</span></span>
-        <span className="mt-4 block font-medium text-white">Conectar LinkedIn</span><span className="mt-1 block text-xs text-[var(--muted)]">Abrir no navegador e mapear →</span>
+        <span className="mt-4 block font-medium text-white">Conectar LinkedIn</span><span className="mt-1 block text-xs text-[var(--muted)]">Entrar em uma janela segura e mapear →</span>
       </button>
       <button type="button" onClick={connectGoogle} className="group min-h-28 rounded-2xl border border-[#4b5060] bg-[#12141a] p-4 text-left transition hover:border-[#8c93a4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a99cff]">
         <span className="flex items-center justify-between gap-3"><span className="grid size-10 place-items-center rounded-xl bg-white text-lg font-semibold text-[#4285f4]">G</span><span className={props.googleConnected ? "text-xs text-[var(--green)]" : "text-xs text-[var(--muted)]"}>{props.googleConnected ? `${props.googleCount} contatos` : "Não conectado"}</span></span>

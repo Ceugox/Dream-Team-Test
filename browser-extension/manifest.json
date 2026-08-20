@@ -3,7 +3,7 @@
   "name": "Referral Copilot - Conector LinkedIn",
   "version": "1.0.0",
   "description": "Sincroniza, com consentimento, as conexões profissionais visíveis na conta LinkedIn do usuário.",
-  "permissions": ["tabs", "storage"],
+  "permissions": ["tabs", "windows", "storage"],
   "host_permissions": ["https://www.linkedin.com/*"],
   "background": { "service_worker": "background.js" },
   "content_scripts": [

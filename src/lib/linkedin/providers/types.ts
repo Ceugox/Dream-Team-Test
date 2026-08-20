@@ -1,7 +1,7 @@
-import type { Page } from "playwright-core";
+export type RemoteBrowserPage = object;
 
 export interface RemoteBrowserHandle {
-  readonly page: Page;
+  readonly page: RemoteBrowserPage;
   closeInteractiveUrl(): Promise<void>;
   disconnect(): Promise<void>;
 }

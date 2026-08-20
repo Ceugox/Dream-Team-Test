@@ -13,10 +13,22 @@ interface CdpCall {
   params: Record<string, unknown> | undefined;
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, reject, resolve };
+}
+
 function remoteBrowserFake(responses?: {
-  liveURL?: Record<string, unknown>;
-  reconnect?: Record<string, unknown>;
-  closeLiveURL?: Record<string, unknown>;
+  liveURL?: Record<string, unknown> | (() => Promise<Record<string, unknown>>);
+  reconnect?: Record<string, unknown> | (() => Promise<Record<string, unknown>>);
+  closeLiveURL?: Record<string, unknown> | (() => Promise<Record<string, unknown>>);
+  disconnect?: () => Promise<void>;
+  close?: () => Promise<void>;
 }) {
   const calls: CdpCall[] = [];
   const page = { marker: "remote-page" };
@@ -24,35 +36,42 @@ function remoteBrowserFake(responses?: {
     async send(method: string, params?: Record<string, unknown>) {
       calls.push({ method, params });
       if (method === "Browserless.liveURL") {
-        return responses?.liveURL ?? { error: null, liveURLId: "live-123", liveURL: interactiveUrl };
+        const response = responses?.liveURL;
+        return typeof response === "function"
+          ? response()
+          : response ?? { error: null, liveURLId: "live-123", liveURL: interactiveUrl };
       }
       if (method === "Browserless.reconnect") {
-        return responses?.reconnect ?? { auth: null, error: null, browserWSEndpoint: reconnectEndpoint };
+        const response = responses?.reconnect;
+        return typeof response === "function"
+          ? response()
+          : response ?? { auth: null, error: null, browserWSEndpoint: reconnectEndpoint };
       }
       if (method === "Browserless.closeLiveURL") {
-        return responses?.closeLiveURL ?? { error: null, liveURLId: "live-123" };
+        const response = responses?.closeLiveURL;
+        return typeof response === "function"
+          ? response()
+          : response ?? { error: null, liveURLId: "live-123" };
       }
       throw new Error(`Unexpected CDP method: ${method}`);
     },
   };
-  const context = {
-    pages: () => [page],
-    newCDPSession: vi.fn(async () => cdp),
-  };
+  Object.assign(page, { createCDPSession: vi.fn(async () => cdp) });
   const browser = {
-    contexts: () => [context],
-    close: vi.fn(async () => undefined),
+    pages: vi.fn(async () => [page]),
+    disconnect: vi.fn(responses?.disconnect ?? (async () => undefined)),
+    close: vi.fn(responses?.close ?? (async () => undefined)),
   };
 
-  return { browser, calls, cdp, context, page };
+  return { browser, calls, cdp, page };
 }
 
 function providerWith(
-  connectOverCDP: (url: string) => Promise<ReturnType<typeof remoteBrowserFake>["browser"]>,
+  connect: (options: { browserWSEndpoint: string }) => Promise<ReturnType<typeof remoteBrowserFake>["browser"]>,
 ) {
   return createBrowserlessProvider(
-    { endpoint, token, loginTimeoutMs: 600_000 },
-    { appSecret, connectOverCDP },
+    { endpoint, token, loginTimeoutMs: 600_000, reconnectTimeoutMs: 30_000 },
+    { appSecret, connect },
   );
 }
 
@@ -60,8 +79,8 @@ describe("Browserless LinkedIn browser provider", () => {
   it("creates a token-free HTTPS LiveURL and an encrypted reconnect reference", async () => {
     const remote = remoteBrowserFake();
     const connectedUrls: string[] = [];
-    const provider = providerWith(async (url) => {
-      connectedUrls.push(url);
+    const provider = providerWith(async ({ browserWSEndpoint }) => {
+      connectedUrls.push(browserWSEndpoint);
       return remote.browser;
     });
 
@@ -77,7 +96,7 @@ describe("Browserless LinkedIn browser provider", () => {
     });
     expect(remote.calls).toContainEqual({
       method: "Browserless.reconnect",
-      params: { timeout: 240_000 },
+      params: { timeout: 30_000 },
     });
     expect(result.interactiveUrl).toBe(interactiveUrl);
     expect(result.interactiveUrl).not.toContain(token);
@@ -88,7 +107,8 @@ describe("Browserless LinkedIn browser provider", () => {
       browserWSEndpoint: reconnectEndpoint,
       liveURLId: "live-123",
     });
-    expect(remote.browser.close).toHaveBeenCalledTimes(1);
+    expect(remote.browser.disconnect).toHaveBeenCalledTimes(1);
+    expect(remote.browser.close).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -153,11 +173,47 @@ describe("Browserless LinkedIn browser provider", () => {
       .rejects.toThrow("BROWSERLESS_SESSION_CREATION_FAILED");
   });
 
+  it("closes the LiveURL and terminates the browser when reference encryption fails", async () => {
+    const remote = remoteBrowserFake();
+    const provider = createBrowserlessProvider(
+      { endpoint, token, loginTimeoutMs: 600_000, reconnectTimeoutMs: 30_000 },
+      { appSecret: "", connect: async () => remote.browser },
+    );
+
+    await expect(provider.createSession({ sessionId: "session", timeoutMs: 2_700_000 }))
+      .rejects.toThrow("BROWSERLESS_SESSION_CREATION_FAILED");
+
+    expect(remote.calls).toContainEqual({
+      method: "Browserless.closeLiveURL",
+      params: { liveURLId: "live-123" },
+    });
+    expect(remote.browser.close).toHaveBeenCalledTimes(1);
+    expect(remote.browser.disconnect).not.toHaveBeenCalled();
+  });
+
+  it("closes the LiveURL and terminates the browser when detach fails", async () => {
+    const remote = remoteBrowserFake({
+      disconnect: async () => {
+        throw new Error(`detach failed with ${token}`);
+      },
+    });
+    const provider = providerWith(async () => remote.browser);
+
+    await expect(provider.createSession({ sessionId: "session", timeoutMs: 2_700_000 }))
+      .rejects.toThrow("BROWSERLESS_SESSION_CREATION_FAILED");
+
+    expect(remote.calls).toContainEqual({
+      method: "Browserless.closeLiveURL",
+      params: { liveURLId: "live-123" },
+    });
+    expect(remote.browser.close).toHaveBeenCalledTimes(1);
+  });
+
   it("reconnects with server credentials and exposes only the page and lifecycle methods", async () => {
     const remote = remoteBrowserFake();
     const connectedUrls: string[] = [];
-    const provider = providerWith(async (url) => {
-      connectedUrls.push(url);
+    const provider = providerWith(async ({ browserWSEndpoint }) => {
+      connectedUrls.push(browserWSEndpoint);
       return remote.browser;
     });
     const reference = encryptProviderSessionReference(JSON.stringify({
@@ -180,7 +236,88 @@ describe("Browserless LinkedIn browser provider", () => {
 
     await handle.disconnect();
     await handle.disconnect();
-    expect(remote.browser.close).toHaveBeenCalledTimes(1);
+    expect(remote.browser.disconnect).toHaveBeenCalledTimes(1);
+    expect(remote.browser.close).not.toHaveBeenCalled();
+  });
+
+  it("shares one concurrent LiveURL close and remains idempotent after success", async () => {
+    const closeResult = deferred<Record<string, unknown>>();
+    const remote = remoteBrowserFake({ closeLiveURL: () => closeResult.promise });
+    const provider = providerWith(async () => remote.browser);
+    const reference = encryptProviderSessionReference(JSON.stringify({
+      browserWSEndpoint: reconnectEndpoint,
+      liveURLId: "live-123",
+    }), appSecret);
+    const handle = await provider.connect(reference);
+
+    const first = handle.closeInteractiveUrl();
+    const concurrent = handle.closeInteractiveUrl();
+    expect(remote.calls.filter(({ method }) => method === "Browserless.closeLiveURL")).toHaveLength(1);
+
+    closeResult.resolve({ error: null, liveURLId: "live-123" });
+    await Promise.all([first, concurrent]);
+    await handle.closeInteractiveUrl();
+    expect(remote.calls.filter(({ method }) => method === "Browserless.closeLiveURL")).toHaveLength(1);
+  });
+
+  it("allows LiveURL close to retry after a redacted failure", async () => {
+    let attempts = 0;
+    const remote = remoteBrowserFake({
+      closeLiveURL: async () => {
+        attempts += 1;
+        return attempts === 1 ? { error: `private ${token}` } : { error: null, liveURLId: "live-123" };
+      },
+    });
+    const provider = providerWith(async () => remote.browser);
+    const reference = encryptProviderSessionReference(JSON.stringify({
+      browserWSEndpoint: reconnectEndpoint,
+      liveURLId: "live-123",
+    }), appSecret);
+    const handle = await provider.connect(reference);
+
+    await expect(handle.closeInteractiveUrl()).rejects.toThrow("BROWSERLESS_SESSION_CONNECTION_FAILED");
+    await expect(handle.closeInteractiveUrl()).resolves.toBeUndefined();
+    expect(attempts).toBe(2);
+  });
+
+  it("shares one concurrent disconnect and remains idempotent after success", async () => {
+    const disconnectResult = deferred<void>();
+    const remote = remoteBrowserFake({ disconnect: () => disconnectResult.promise });
+    const provider = providerWith(async () => remote.browser);
+    const reference = encryptProviderSessionReference(JSON.stringify({
+      browserWSEndpoint: reconnectEndpoint,
+      liveURLId: "live-123",
+    }), appSecret);
+    const handle = await provider.connect(reference);
+
+    const first = handle.disconnect();
+    const concurrent = handle.disconnect();
+    expect(remote.browser.disconnect).toHaveBeenCalledTimes(1);
+
+    disconnectResult.resolve();
+    await Promise.all([first, concurrent]);
+    await handle.disconnect();
+    expect(remote.browser.disconnect).toHaveBeenCalledTimes(1);
+  });
+
+  it("allows disconnect to retry after a redacted failure", async () => {
+    let attempts = 0;
+    const remote = remoteBrowserFake({
+      disconnect: async () => {
+        attempts += 1;
+        if (attempts === 1) throw new Error(`private ${token}`);
+      },
+    });
+    const provider = providerWith(async () => remote.browser);
+    const reference = encryptProviderSessionReference(JSON.stringify({
+      browserWSEndpoint: reconnectEndpoint,
+      liveURLId: "live-123",
+    }), appSecret);
+    const handle = await provider.connect(reference);
+
+    await expect(handle.disconnect()).rejects.toThrow("BROWSERLESS_SESSION_CONNECTION_FAILED");
+    await expect(handle.disconnect()).resolves.toBeUndefined();
+    expect(attempts).toBe(2);
   });
 
   it("rejects an authenticated reconnect endpoint on a different provider host", async () => {
@@ -210,6 +347,7 @@ describe("Browserless LinkedIn browser provider", () => {
       params: { liveURLId: "live-123" },
     });
     expect(remote.browser.close).toHaveBeenCalledTimes(1);
+    expect(remote.browser.disconnect).not.toHaveBeenCalled();
   });
 
   it("keeps provider methods safe to inject as standalone callbacks", async () => {
@@ -222,6 +360,25 @@ describe("Browserless LinkedIn browser provider", () => {
     const destroy = provider.destroy;
 
     await destroy(reference);
+
+    expect(remote.browser.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("treats repeated destroy calls and stale reconnect references as successful cleanup", async () => {
+    const remote = remoteBrowserFake();
+    let attempts = 0;
+    const provider = providerWith(async () => {
+      attempts += 1;
+      if (attempts > 1) throw new Error(`stale ${reconnectEndpoint}?token=${token}`);
+      return remote.browser;
+    });
+    const reference = encryptProviderSessionReference(JSON.stringify({
+      browserWSEndpoint: reconnectEndpoint,
+      liveURLId: "live-123",
+    }), appSecret);
+
+    await expect(provider.destroy(reference)).resolves.toBeUndefined();
+    await expect(provider.destroy(reference)).resolves.toBeUndefined();
 
     expect(remote.browser.close).toHaveBeenCalledTimes(1);
   });

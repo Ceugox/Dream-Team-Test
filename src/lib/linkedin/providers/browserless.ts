@@ -1,18 +1,18 @@
-import { chromium, type Page } from "playwright-core";
+import puppeteer from "puppeteer-core";
 import { decryptProviderSessionReference, encryptProviderSessionReference } from "../crypto";
-import type { LinkedInBrowserProvider, RemoteBrowserHandle } from "./types";
+import type { LinkedInBrowserProvider, RemoteBrowserHandle, RemoteBrowserPage } from "./types";
 
 interface CdpSessionLike {
   send(method: string, params?: Record<string, unknown>): Promise<Record<string, unknown>>;
 }
 
-interface BrowserContextLike {
-  pages(): unknown[];
-  newCDPSession(page: unknown): Promise<CdpSessionLike>;
+interface BrowserPageLike {
+  createCDPSession(): Promise<CdpSessionLike>;
 }
 
 interface BrowserConnectionLike {
-  contexts(): BrowserContextLike[];
+  pages(): Promise<unknown[]>;
+  disconnect(): Promise<void> | void;
   close(): Promise<void>;
 }
 
@@ -20,16 +20,24 @@ interface BrowserlessProviderConfig {
   endpoint: string;
   token: string;
   loginTimeoutMs: number;
+  reconnectTimeoutMs: number;
 }
 
 interface BrowserlessProviderDependencies {
   appSecret?: string;
-  connectOverCDP?: (endpoint: string) => Promise<BrowserConnectionLike>;
+  connect?: (options: { browserWSEndpoint: string }) => Promise<BrowserConnectionLike>;
 }
 
 interface BrowserlessReference {
   browserWSEndpoint: string;
   liveURLId: string;
+}
+
+interface OpenBrowserConnection {
+  browser: BrowserConnectionLike;
+  cdp: CdpSessionLike;
+  page: RemoteBrowserPage;
+  reference: BrowserlessReference;
 }
 
 const CREATION_ERROR = "BROWSERLESS_SESSION_CREATION_FAILED";
@@ -99,84 +107,120 @@ function referencePayload(encrypted: string, appSecret: string | undefined, endp
 }
 
 async function activePage(browser: BrowserConnectionLike): Promise<{
-  page: Page;
+  page: RemoteBrowserPage;
   cdp: CdpSessionLike;
 }> {
-  const context = browser.contexts()[0];
-  const page = context?.pages()[0];
-  if (!context || !page) throw safeError(CONNECTION_ERROR);
-  const cdp = await context.newCDPSession(page);
-  return { page: page as Page, cdp };
+  const page = (await browser.pages())[0] as BrowserPageLike | undefined;
+  if (!page || typeof page.createCDPSession !== "function") throw safeError(CONNECTION_ERROR);
+  return { page, cdp: await page.createCDPSession() };
+}
+
+function retryableOnce(operation: () => Promise<void>): () => Promise<void> {
+  let complete = false;
+  let inFlight: Promise<void> | undefined;
+
+  return () => {
+    if (complete) return Promise.resolve();
+    if (inFlight) return inFlight;
+
+    const current = operation()
+      .then(() => {
+        complete = true;
+      })
+      .finally(() => {
+        if (inFlight === current) inFlight = undefined;
+      });
+    inFlight = current;
+    return current;
+  };
 }
 
 function remoteHandle(
   browser: BrowserConnectionLike,
-  page: Page,
+  page: RemoteBrowserPage,
   cdp: CdpSessionLike,
   liveURLId: string,
 ): RemoteBrowserHandle {
-  let interactiveUrlClosed = false;
-  let disconnected = false;
+  const closeInteractiveUrl = retryableOnce(async () => {
+    try {
+      const result = await cdp.send("Browserless.closeLiveURL", { liveURLId });
+      if (result.error) throw safeError(CONNECTION_ERROR);
+    } catch {
+      throw safeError(CONNECTION_ERROR);
+    }
+  });
+  const disconnect = retryableOnce(async () => {
+    try {
+      await browser.disconnect();
+    } catch {
+      throw safeError(CONNECTION_ERROR);
+    }
+  });
 
-  return {
-    page,
-    async closeInteractiveUrl() {
-      if (interactiveUrlClosed) return;
-      interactiveUrlClosed = true;
-      try {
-        const result = await cdp.send("Browserless.closeLiveURL", { liveURLId });
-        if (result.error) throw safeError(CONNECTION_ERROR);
-      } catch {
-        throw safeError(CONNECTION_ERROR);
-      }
-    },
-    async disconnect() {
-      if (disconnected) return;
-      disconnected = true;
-      try {
-        await browser.close();
-      } catch {
-        throw safeError(CONNECTION_ERROR);
-      }
-    },
-  };
+  return { page, closeInteractiveUrl, disconnect };
+}
+
+async function bestEffortCloseLiveUrl(cdp: CdpSessionLike | undefined, liveURLId: string | undefined): Promise<void> {
+  if (!cdp || !liveURLId) return;
+  await cdp.send("Browserless.closeLiveURL", { liveURLId }).catch(() => undefined);
 }
 
 export function createBrowserlessProvider(
   config: BrowserlessProviderConfig,
   dependencies: BrowserlessProviderDependencies = {},
 ): LinkedInBrowserProvider {
-  const connectOverCDP = dependencies.connectOverCDP ?? ((endpoint: string) => chromium.connectOverCDP(endpoint));
+  const connectBrowser = dependencies.connect ?? ((options) => puppeteer.connect(options));
+
+  const openConnection = async (encryptedReferencePayload: string): Promise<OpenBrowserConnection> => {
+    const reference = referencePayload(encryptedReferencePayload, dependencies.appSecret, config.endpoint);
+    const browser = await connectBrowser({
+      browserWSEndpoint: authenticatedEndpoint(reference.browserWSEndpoint, config.token),
+    });
+    try {
+      const { page, cdp } = await activePage(browser);
+      return { browser, cdp, page, reference };
+    } catch {
+      await browser.close().catch(() => undefined);
+      throw safeError(CONNECTION_ERROR);
+    }
+  };
 
   const connect = async (encryptedReferencePayload: string): Promise<RemoteBrowserHandle> => {
-    let browser: BrowserConnectionLike | undefined;
     try {
-      const reference = referencePayload(encryptedReferencePayload, dependencies.appSecret, config.endpoint);
-      browser = await connectOverCDP(authenticatedEndpoint(reference.browserWSEndpoint, config.token));
-      const { page, cdp } = await activePage(browser);
-      return remoteHandle(browser, page, cdp, reference.liveURLId);
+      const connection = await openConnection(encryptedReferencePayload);
+      return remoteHandle(
+        connection.browser,
+        connection.page,
+        connection.cdp,
+        connection.reference.liveURLId,
+      );
     } catch {
-      if (browser) await browser.close().catch(() => undefined);
       throw safeError(CONNECTION_ERROR);
     }
   };
 
   return {
-    async createSession(input) {
+    async createSession() {
       let browser: BrowserConnectionLike | undefined;
+      let cdp: CdpSessionLike | undefined;
+      let liveURLId: string | undefined;
       try {
-        browser = await connectOverCDP(authenticatedEndpoint(config.endpoint, config.token));
-        const { cdp } = await activePage(browser);
+        browser = await connectBrowser({
+          browserWSEndpoint: authenticatedEndpoint(config.endpoint, config.token),
+        });
+        ({ cdp } = await activePage(browser));
         const liveResult = await cdp.send("Browserless.liveURL", {
           timeout: config.loginTimeoutMs,
           resizable: true,
           interactable: true,
         });
         if (liveResult.error) throw safeError(CREATION_ERROR);
+        liveURLId = requiredString(liveResult.liveURLId, CREATION_ERROR);
         const interactiveUrl = assertInteractiveUrl(liveResult.liveURL, config.endpoint);
-        const liveURLId = requiredString(liveResult.liveURLId, CREATION_ERROR);
 
-        const reconnectResult = await cdp.send("Browserless.reconnect", { timeout: input.timeoutMs });
+        const reconnectResult = await cdp.send("Browserless.reconnect", {
+          timeout: config.reconnectTimeoutMs,
+        });
         if (reconnectResult.error) throw safeError(CREATION_ERROR);
         const browserWSEndpoint = assertReconnectEndpoint(reconnectResult.browserWSEndpoint, config.endpoint);
         const encryptedReferencePayload = encryptProviderSessionReference(
@@ -184,10 +228,11 @@ export function createBrowserlessProvider(
           dependencies.appSecret,
         );
 
-        await browser.close();
+        await browser.disconnect();
         browser = undefined;
         return { encryptedReferencePayload, interactiveUrl };
       } catch {
+        await bestEffortCloseLiveUrl(cdp, liveURLId);
         if (browser) await browser.close().catch(() => undefined);
         throw safeError(CREATION_ERROR);
       }
@@ -196,12 +241,15 @@ export function createBrowserlessProvider(
     connect,
 
     async destroy(encryptedReferencePayload) {
-      const handle = await connect(encryptedReferencePayload);
+      let connection: OpenBrowserConnection;
       try {
-        await handle.closeInteractiveUrl();
-      } finally {
-        await handle.disconnect();
+        connection = await openConnection(encryptedReferencePayload);
+      } catch {
+        return;
       }
+
+      await bestEffortCloseLiveUrl(connection.cdp, connection.reference.liveURLId);
+      await connection.browser.close().catch(() => undefined);
     },
   };
 }

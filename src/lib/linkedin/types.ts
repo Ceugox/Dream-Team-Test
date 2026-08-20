@@ -61,6 +61,7 @@ export interface LinkedInPublicConfig {
   endpoint: string;
   maxConcurrentSessions: number;
   loginTimeoutMs: number;
+  reconnectTimeoutMs: number;
   sessionTimeoutMs: number;
   profileDelayMinMs: number;
   profileDelayMaxMs: number;

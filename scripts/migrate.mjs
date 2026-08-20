@@ -201,6 +201,54 @@ CREATE UNIQUE INDEX IF NOT EXISTS admin_contacts_linkedin_unique_idx ON admin_ne
 CREATE INDEX IF NOT EXISTS recommendations_job_kind_idx ON network_recommendations(job_id,kind,score DESC);
 CREATE INDEX IF NOT EXISTS outreach_job_status_idx ON outreach_requests(job_id,status);
 CREATE INDEX IF NOT EXISTS inference_runs_job_idx ON inference_runs(job_id,created_at DESC);
+
+CREATE TABLE IF NOT EXISTS orchestration_workflows (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  organization_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  kind text NOT NULL CHECK (kind IN ('job_activation','network_enrichment')),
+  entity_type text NOT NULL,
+  entity_id text NOT NULL,
+  status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','running','completed','failed','cancelled')),
+  token_budget integer NOT NULL CHECK (token_budget > 0),
+  estimated_cost_usd double precision NOT NULL DEFAULT 0,
+  requested_by uuid REFERENCES administrators(id) ON DELETE SET NULL,
+  error text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  started_at timestamptz,
+  completed_at timestamptz,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS orchestration_tasks (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  workflow_id uuid NOT NULL REFERENCES orchestration_workflows(id) ON DELETE CASCADE,
+  task_type text NOT NULL CHECK (task_type IN ('job_analysis','profile_enrichment','match_rerank')),
+  status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','running','retry','completed','failed','cancelled')),
+  payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+  result jsonb,
+  depends_on uuid[] NOT NULL DEFAULT '{}'::uuid[],
+  idempotency_key text NOT NULL UNIQUE,
+  priority integer NOT NULL DEFAULT 100,
+  token_budget integer NOT NULL CHECK (token_budget > 0),
+  timeout_seconds integer NOT NULL DEFAULT 60 CHECK (timeout_seconds BETWEEN 5 AND 300),
+  attempts integer NOT NULL DEFAULT 0,
+  max_attempts integer NOT NULL DEFAULT 3 CHECK (max_attempts BETWEEN 1 AND 8),
+  available_at timestamptz NOT NULL DEFAULT now(),
+  locked_by text,
+  lease_until timestamptz,
+  model text,
+  prompt_tokens integer NOT NULL DEFAULT 0,
+  completion_tokens integer NOT NULL DEFAULT 0,
+  error text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  started_at timestamptz,
+  completed_at timestamptz,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS orchestration_workflows_org_created_idx ON orchestration_workflows(organization_id,created_at DESC);
+CREATE INDEX IF NOT EXISTS orchestration_tasks_claim_idx ON orchestration_tasks(status,available_at,priority,created_at);
+CREATE INDEX IF NOT EXISTS orchestration_tasks_workflow_idx ON orchestration_tasks(workflow_id,status);
 CREATE UNIQUE INDEX IF NOT EXISTS referrals_unique_candidate_idx ON referrals(job_id, member_id, linkedin_url) WHERE linkedin_url IS NOT NULL;
 
 INSERT INTO organizations (id, name)

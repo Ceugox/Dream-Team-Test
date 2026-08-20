@@ -31,6 +31,7 @@ O administrador nunca recebe uma listagem da rede privada dos membros.
 - Fila click-to-chat com mensagens personalizadas e histórico operacional.
 - PostgreSQL e migração idempotente no start da aplicação.
 - Interface responsiva inspirada em ferramentas modernas de desenvolvedor.
+- Orquestrador assíncrono em DAG com worker independente, orçamento, auditoria e retentativas.
 
 ## Segurança e privacidade
 
@@ -89,6 +90,9 @@ flowchart LR
   M --> L[Importação LinkedIn]
   L --> P[(PostgreSQL)]
   J --> R[Motor de ranking]
+  J --> Q[(Fila de inteligência)]
+  Q --> WK[Worker especializado]
+  WK --> R
   P --> R
   R --> O[Oportunidades privadas]
   O -->|consentimento explícito| F[Indicação]
@@ -103,6 +107,13 @@ flowchart LR
 - PostgreSQL com `pg`, chaves estrangeiras, índices e transações.
 - Zod na validação dos dados importados.
 - Vitest para domínio, autenticação, resolução de identidade e ranking.
+- Fila PostgreSQL com leases, `SKIP LOCKED`, dependências, idempotência e até três tarefas paralelas.
+
+## Orquestrador de inteligência
+
+O serviço web apenas cria workflows; o serviço `intelligence-worker` executa as tarefas em segundo plano com `npm run worker`. Os pipelines usam três especialistas: `job_analysis`, `profile_enrichment` e `match_rerank`. Cada handoff possui payload validado, orçamento de tokens, timeout, dependências e até três tentativas com backoff exponencial.
+
+O Gemini analisa descrições de vagas sem dados pessoais. O OpenRouter/DeepSeek faz o reranking pseudonimizado e a pesquisa pública continua exigindo provedores com retenção zero. O painel **Admin → Inteligência** mostra progresso, tokens, orçamento estimado e falhas definitivas.
 
 ## Comandos de qualidade
 
@@ -115,7 +126,7 @@ npm audit --omit=dev
 
 ## Operação no Railway
 
-Configure `DATABASE_URL`, `APP_SECRET`, `ADMIN_ACCESS_KEY` e `OPENROUTER_API_KEY` no serviço. `OPENROUTER_MODEL` é opcional e usa `deepseek/deepseek-v4-flash-0731` por padrão. O comando `npm start` executa a migração idempotente e inicia o Next.js. O PostgreSQL pode ser conectado por referência interna do Railway.
+Configure `DATABASE_URL`, `APP_SECRET`, `ADMIN_ACCESS_KEY`, `OPENROUTER_API_KEY` e, opcionalmente, `GEMINI_API_KEY`. O serviço web usa `npm start`; o worker usa `npm run worker`, `WORKER_CONCURRENCY=3` e as mesmas referências de banco/modelos. Ambos executam a migração idempotente antes de iniciar.
 
 As inferências analisam a vaga e reranqueiam somente os melhores resultados do motor determinístico. Perfis são enviados com identificadores opacos e sem nome, telefone, e-mail ou URL. Se o OpenRouter estiver indisponível, o ranking determinístico continua funcionando.
 

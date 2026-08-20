@@ -7,6 +7,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "node scripts/migrate.mjs && next start",
+    "worker": "node scripts/migrate.mjs && tsx scripts/intelligence-worker.ts",
     "db:migrate": "node scripts/migrate.mjs",
     "lint": "eslint",
     "test": "vitest run",
@@ -17,6 +18,7 @@
     "pg": "^8.23.0",
     "react": "19.1.0",
     "react-dom": "19.1.0",
+    "tsx": "^4.20.6",
     "zod": "^4.4.3"
   },
   "devDependencies": {

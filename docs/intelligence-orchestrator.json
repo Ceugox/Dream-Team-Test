@@ -1,0 +1,16 @@
+{
+  "name": "intelligence-orchestrator",
+  "pattern": "orchestrator",
+  "orchestrator": { "agent": "postgres-dag-planner", "planning": "bounded" },
+  "specialists": [
+    "job-analyst",
+    "public-profile-researcher",
+    "identity-validator",
+    "match-reranker"
+  ],
+  "execution": {
+    "dependency_mode": "dag",
+    "max_parallel": 3,
+    "completion_policy": "all_required"
+  }
+}

@@ -12,4 +12,3 @@ tmp
 !.env.docker.example
 npm-debug.log*
 *.tsbuildinfo
-public/referral-copilot-linkedin-connector.zip

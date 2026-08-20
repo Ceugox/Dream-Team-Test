@@ -1,129 +1,100 @@
 # Referral Copilot
 
-LinkedIn tells us who is in your professional network. Our intelligence layer tells you who
-you should refer.
+Plataforma privada de indicações profissionais. O administrador publica vagas e convida a equipe; cada membro conecta a própria rede, recebe sugestões de pessoas aderentes e decide individualmente o que compartilhar.
 
-## Problema
+## Fluxo do produto
 
-Numa plataforma de indicação de vagas, quem indica não é recrutador — tem emprego próprio,
-rede grande, pouco tempo. Lembrar manualmente "quem eu conheço pra essa vaga" é difícil,
-e frequentemente a indicação simplesmente não acontece.
+1. O administrador entra no workspace e publica as vagas prioritárias.
+2. O administrador cria convites individuais, válidos por sete dias.
+3. O colega aceita o convite e acessa uma área privada.
+4. O colega gera um `connections.json` dentro da própria sessão do LinkedIn e importa o arquivo.
+5. O motor cruza cargo, senioridade, competências, empresa e localização com as vagas ativas.
+6. Somente quando o colega confirma uma indicação, nome, perfil e contexto da relação ficam visíveis ao administrador.
 
-## Hipótese de produto
+O administrador nunca recebe uma listagem da rede privada dos membros.
 
-Se mapearmos a rede profissional do usuário e a enriquecermos com sinais de relacionamento,
-o sistema pode responder proativamente "estas são as pessoas que você deveria considerar
-indicar pra esta vaga, e por quê" — antes do usuário lembrar delas sozinho.
+## Produto entregue
 
-## Como rodar
+- Dashboard administrativo com métricas reais.
+- Cadastro persistente de vagas.
+- Convites assinados, expiráveis e vinculáveis a e-mail.
+- Onboarding e sessão privada para cada membro.
+- Importação de conexões do LinkedIn sem armazenar credenciais.
+- Ranking de oportunidades por aderência profissional.
+- Consentimento explícito por indicação.
+- Pipeline administrativo com status de acompanhamento.
+- PostgreSQL e migração idempotente no start da aplicação.
+- Interface responsiva inspirada em ferramentas modernas de desenvolvedor.
+
+## Segurança e privacidade
+
+- Cookies de sessão assinados, `httpOnly`, `sameSite=lax` e `secure` em produção.
+- Chave administrativa comparada em tempo constante.
+- Tokens de convite aleatórios; apenas o hash é persistido.
+- Convites usados são invalidados dentro de transação com bloqueio de linha.
+- Contatos ficam isolados por membro e não possuem rota administrativa de listagem.
+- Indicações registram os campos que receberam consentimento.
+- A senha do LinkedIn nunca passa pela aplicação. A extração usa a sessão já autenticada do próprio usuário.
+
+## Executar localmente
+
+Requisitos: Node.js 20+ e PostgreSQL.
 
 ```bash
 npm install
+npm run db:migrate
 npm run dev
 ```
 
-Abra http://localhost:3000. Clique em "Map my professional network":
-- **Com dados reais**: rode `public/linkedin-console-script.js` no console do DevTools em
-  `linkedin.com/mynetwork/invite-connect/connections/` (você precisa estar logado — o script
-  lê apenas o que já está renderizado na página, não usa o export oficial de 48h nem
-  automação de browser). Isso baixa um `connections.json`; suba esse arquivo na tela inicial.
-- **Sem upload**: o app roda direto em cima de dados de demonstração realistas.
+Crie um `.env.local`:
 
-## Variáveis de ambiente
+```dotenv
+DATABASE_URL=postgresql://usuario:senha@localhost:5432/referral_copilot
+APP_SECRET=troque-por-um-segredo-longo-e-aleatorio
+ADMIN_ACCESS_KEY=troque-por-uma-chave-administrativa
+```
 
-| Variável | Default | Efeito |
-|---|---|---|
-| `DEMO_MODE` | `false` | Quando `true`, ignora qualquer `connections.json` enviado e força o LinkedIn também a rodar em fixture — útil pra demonstrar o pipeline completo sem depender de um upload ao vivo. Gmail/Contacts/Calendar já rodam em fixture sempre neste MVP (ver "O que deliberadamente não construímos"). |
+Acesse `http://localhost:3000`. A raiz encaminha para o login administrativo.
+
+## LinkedIn
+
+O arquivo `public/linkedin-console-script.js` é executado pelo próprio membro na página de conexões do LinkedIn. Ele lê somente os elementos já visíveis na sessão autenticada e baixa um JSON local. A tela **Conexões** contém o passo a passo e o botão de download do extrator.
+
+Essa abordagem não tenta contornar autenticação, CAPTCHA ou mecanismos de proteção e evita o armazenamento de senha/cookie do LinkedIn. Como depende da estrutura visual da página, o seletor pode exigir manutenção quando o LinkedIn alterar a interface.
 
 ## Arquitetura
 
 ```mermaid
 flowchart LR
-  U[Usuário] -->|upload connections.json| UI[Next.js UI]
-  UI --> API[/api/network SSE/]
-  API --> Pipeline[Pipeline]
-  Pipeline --> LinkedInSource
-  Pipeline --> GmailSource
-  Pipeline --> ContactsSource
-  Pipeline --> CalendarSource
-  Pipeline --> Identity[Identity Resolution]
-  Identity --> Registry[(Person Registry - in memory)]
-  Registry --> UI
-  UI -->|paste job description| Match[/api/match/]
-  Match --> Ranking[Candidate Fit + Referral Score]
-  Ranking --> UI
+  A[Administrador] --> J[Vagas]
+  A --> I[Convites]
+  I --> M[Área privada do membro]
+  M --> L[Importação LinkedIn]
+  L --> P[(PostgreSQL)]
+  J --> R[Motor de ranking]
+  P --> R
+  R --> O[Oportunidades privadas]
+  O -->|consentimento explícito| F[Indicação]
+  F --> A
 ```
 
-Toda fonte implementa `NetworkSource.discoverPeople(): AsyncGenerator<Person>`
-(`src/lib/sources/base.ts`). O resto do pipeline — identity resolution, enrichment,
-relationship scoring, matching, UI — não conhece nada específico de LinkedIn, scraping, ou
-fixtures.
+- Next.js 16 e React 19 no frontend e backend.
+- Route Handlers para autenticação, vagas, convites, importação e indicações.
+- PostgreSQL com `pg`, chaves estrangeiras, índices e transações.
+- Zod na validação dos dados importados.
+- Vitest para domínio, autenticação, resolução de identidade e ranking.
 
-## Decisões técnicas
+## Comandos de qualidade
 
-- **Next.js full-stack (TypeScript)** em vez de backend separado: um processo, uma
-  linguagem, zero duplicação do modelo `Person`, Route Handlers já fazem SSE.
-- **LinkedIn via script de console**, não browser automation: o próprio usuário, já logado,
-  roda um script que lê o DOM renderizado — zero bypass de autenticação, zero CAPTCHA
-  quebrado, zero sessão roubada. Ver `public/linkedin-console-script.js`.
-- **Gmail/Contacts/Calendar são adapters reais, mas rodam em fixture** (`src/lib/sources/fixtures.ts`)
-  — OAuth real ficaria fora do orçamento de tempo do desafio; a interface está pronta pra
-  ligar credenciais reais depois sem tocar no resto do pipeline.
-- **Matching determinístico** (`src/lib/matching/`) — sem LLM no caminho crítico, pra garantir
-  que a demo funcione offline e sem custo por rodada.
-- **Merge de identidade combina dados de relacionamento campo a campo**: quando a mesma
-  pessoa é descoberta em mais de uma fonte (ex.: LinkedIn + Gmail + Calendar),
-  `mergePeople` (`src/lib/identity/resolver.ts`) soma contadores de e-mail e reuniões e
-  fica com a interação mais recente, em vez de simplesmente sobrescrever — é por isso que
-  pessoas mescladas de múltiplas fontes mostram força de relacionamento coerente com o
-  histórico real, não apenas o de uma fonte isolada.
-
-## Fluxo da aplicação
-
-1. **Map my professional network** — upload do `connections.json` (ou fallback pra demo),
-   pipeline roda as 4 fontes concorrentemente, progresso ao vivo via SSE.
-2. **Network Overview** — cobertura de dados (empresa/cargo/localização), busca, todas as
-   pessoas.
-3. **Referral Copilot** — cola a vaga, recebe candidatos rankeados por `ReferralScore`, cada
-   um com evidência real do porquê.
-
-## Modelo de ranking
-
-```
-RelationshipScore = 0.30*frequency + 0.30*recency + 0.20*meetings + 0.15*reciprocity + 0.05*contact_signal
-CandidateFit       = 0.35*skills + 0.25*role + 0.15*seniority + 0.15*industry + 0.10*location
-ReferralScore      = CandidateFit * (0.7 + 0.3*RelationshipScore) * Confidence
+```bash
+npm test
+npm run lint -- --max-warnings=0
+npm run build
+npm audit --omit=dev
 ```
 
-Uma pessoa levemente menos aderente à vaga, porém muito mais próxima do usuário, pode
-superar em `ReferralScore` alguém "mais perfeito" no papel mas praticamente desconhecido.
+## Operação no Railway
 
-## Limitações
+Configure `DATABASE_URL`, `APP_SECRET` e `ADMIN_ACCESS_KEY` no serviço. O comando `npm start` executa a migração idempotente e inicia o Next.js. O PostgreSQL pode ser conectado por referência interna do Railway.
 
-- Sem Gmail/Calendar reais conectados, `RelationshipScore` cai pro sinal de `contact_signal`
-  (ex.: conexões em comum do LinkedIn), sinalizado explicitamente como "sem dados de
-  interação" — não fingimos precisão que não temos.
-- Extração via console script depende da estrutura DOM atual do LinkedIn; se a LinkedIn
-  mudar nomes de classe, o seletor precisa de ajuste manual (comentado no próprio arquivo).
-- Sem persistência entre sessões — tudo em memória/sessionStorage, por design (o desafio não
-  pede login nem banco de dados).
-
-## What we deliberately did NOT build
-
-- **OAuth real de Gmail/Calendar/Contacts**: adapter pronto, não ligado. Rodar OAuth real em
-  ~40h de prazo, sujeito à tela de "app não verificado" do Google travando ao vivo, era mais
-  risco do que valor pra uma demo de sexta-feira.
-- **Backend separado (FastAPI)**: cortado por simplicidade operacional solo — um único
-  processo Next.js cobre orquestração, API e UI sem duplicar o modelo de domínio.
-- **Banco de dados**: o próprio desafio pede explicitamente que não seja necessário.
-- **Browser automation contra o LinkedIn**: risco de detecção anti-bot e violação de ToS;
-  substituído pelo script de console que o próprio usuário roda na sua sessão já logada.
-- **Microservices, fila distribuída, Neo4j, Kubernetes**: escopo de produção que não serve a
-  um MVP avaliado uma única vez.
-
-## Evolução para produção
-
-A interface `NetworkSource` já isola a aquisição de dados do resto do sistema — trocar a
-fixture de Gmail/Calendar por OAuth real, adicionar PostgreSQL/pgvector, sincronização
-incremental, multi-tenancy ou uma fila de background jobs não deveria exigir mudanças em
-identity resolution, enrichment, scoring, matching ou UI.
+Google Contacts e Calendar estão apresentados como integrações futuras porque exigem credenciais OAuth do proprietário do produto. Nenhum dado fictício dessas fontes é exibido na experiência entregue.

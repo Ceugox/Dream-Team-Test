@@ -47,7 +47,7 @@ test("explainMatch only cites evidence actually present on the person", () => {
   const evidence = explainMatch(person, job, fit);
   expect(evidence.some((e) => e.toLowerCase().includes("python"))).toBe(true);
   expect(evidence.some((e) => e.toLowerCase().includes("sao paulo"))).toBe(true);
-  expect(evidence.some((e) => e.includes("5") && e.toLowerCase().includes("meeting"))).toBe(true);
+  expect(evidence.some((e) => e.includes("5") && e.toLowerCase().includes("reuni"))).toBe(true);
 });
 
 test("explainMatch does not fabricate a java skill match for a javascript-only candidate", () => {

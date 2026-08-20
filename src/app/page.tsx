@@ -1,5 +1,8 @@
-import { NetworkUploader } from "@/components/NetworkUploader";
+import { redirect } from "next/navigation";
+import { isAdmin } from "@/lib/platform/auth";
 
-export default function Home() {
-  return <NetworkUploader />;
+export const dynamic = "force-dynamic";
+
+export default async function Home() {
+  redirect((await isAdmin()) ? "/admin" : "/admin/login");
 }

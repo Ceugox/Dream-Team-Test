@@ -19,32 +19,32 @@ export function explainMatch(person: Person, job: JobProfile, fit: CandidateFitR
     const matched = [...job.requiredSkills, ...job.preferredSkills].filter((skill) =>
       containsSkillToken(skillsText, skill)
     );
-    if (matched.length > 0) evidence.push(`Skills matched: ${matched.join(", ")}`);
+    if (matched.length > 0) evidence.push(`Competências em comum: ${matched.join(", ")}`);
   }
 
   if (fit.industryFit === 1 && job.industry) {
-    evidence.push(`${job.industry[0].toUpperCase()}${job.industry.slice(1)} experience`);
+    evidence.push(`Experiência em ${job.industry}`);
   }
 
   if (fit.locationFit === 1 && job.location && person.location) {
-    evidence.push(`Based in ${person.location}`);
+    evidence.push(`Localização: ${person.location}`);
   }
 
   if (fit.seniorityFit === 1 && job.seniority !== "unknown") {
-    evidence.push(`Seniority matches: ${job.seniority}`);
+    evidence.push(`Senioridade aderente: ${job.seniority}`);
   }
 
   const relationship = person.relationship;
   if (relationship) {
     const totalInteractions = relationship.emailsSent + relationship.emailsReceived + relationship.meetings;
     if (totalInteractions > 0) {
-      evidence.push(`${totalInteractions} interactions with you`);
+      evidence.push(`${totalInteractions} interações com você`);
     }
     if (relationship.meetings > 0) {
-      evidence.push(`${relationship.meetings} meetings together`);
+      evidence.push(`${relationship.meetings} reuniões em comum`);
     }
     if (relationship.lastInteraction) {
-      evidence.push(`Last interaction: ${relationship.lastInteraction.slice(0, 10)}`);
+      evidence.push(`Última interação: ${relationship.lastInteraction.slice(0, 10)}`);
     }
   }
 

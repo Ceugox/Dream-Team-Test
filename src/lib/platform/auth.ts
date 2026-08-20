@@ -4,7 +4,7 @@ import { cookies } from "next/headers";
 const ADMIN_COOKIE = "rc_admin";
 const MEMBER_COOKIE = "rc_member";
 
-type AdminSession = { role: "admin"; exp: number };
+export type AdminSession = { role: "admin"; administratorId: string; organizationId: string; exp: number };
 export type MemberSession = { role: "member"; memberId: string; organizationId: string; exp: number };
 
 function secret(): string {
@@ -38,16 +38,21 @@ export function verifyAdminKey(input: string): boolean {
   return expected.length === received.length && timingSafeEqual(expected, received);
 }
 
-export async function setAdminSession(): Promise<void> {
+export async function setAdminSession(administratorId: string, organizationId: string): Promise<void> {
   const store = await cookies();
-  store.set(ADMIN_COOKIE, encode({ role: "admin", exp: Date.now() + 1000 * 60 * 60 * 12 } satisfies AdminSession), {
+  store.set(ADMIN_COOKIE, encode({ role: "admin", administratorId, organizationId, exp: Date.now() + 1000 * 60 * 60 * 12 } satisfies AdminSession), {
     httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/", maxAge: 60 * 60 * 12,
   });
 }
 
 export async function isAdmin(): Promise<boolean> {
+  return (await getAdminSession()) !== null;
+}
+
+export async function getAdminSession(): Promise<AdminSession | null> {
   const store = await cookies();
-  return decode<AdminSession>(store.get(ADMIN_COOKIE)?.value)?.role === "admin";
+  const session=decode<AdminSession>(store.get(ADMIN_COOKIE)?.value);
+  return session?.role === "admin" && !!session.administratorId && !!session.organizationId ? session : null;
 }
 
 export async function setMemberSession(memberId: string, organizationId: string): Promise<void> {

@@ -1,11 +1,13 @@
 import type { PoolClient } from "pg";
 import { createInviteToken, hashInviteToken } from "./auth";
 import { DEFAULT_ORGANIZATION_ID, query, transaction } from "./db";
-import type { Invitation, Job, Member, Referral, ReferralStatus } from "./types";
+import type { AdminNetworkContact, Administrator, Invitation, Job, JobStatus, Member, NetworkRecommendation, OutreachRequest, OutreachStatus, RecommendationKind, Referral, ReferralStatus } from "./types";
+import { buildWhatsAppUrl } from "./whatsapp";
 import { createPerson, type Person } from "@/lib/domain/person";
 import { parseHeadline } from "@/lib/enrichment/headline";
 import { parseJobDescription } from "@/lib/matching/jobParser";
 import { rankCandidates } from "@/lib/matching/scoreRegistry";
+import { buildAdminRecommendations } from "./adminMatching";
 
 const orgId = DEFAULT_ORGANIZATION_ID;
 
@@ -16,10 +18,21 @@ export async function listJobs(): Promise<Job[]> {
     WHERE j.organization_id = $1 GROUP BY j.id ORDER BY j.created_at DESC`, [orgId]);
 }
 
-export async function createJob(input: { title: string; company: string; location?: string; description: string }): Promise<string> {
+export async function createJob(input: { title: string; company: string; location?: string; description: string; status?: "draft" | "open" }): Promise<string> {
   const rows = await query<{ id: string }>(`INSERT INTO jobs (organization_id,title,company,location,description,status)
-    VALUES ($1,$2,$3,$4,$5,'active') RETURNING id`, [orgId, input.title, input.company, input.location || null, input.description]);
+    VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`, [orgId, input.title, input.company, input.location || null, input.description, input.status ?? "open"]);
   return rows[0].id;
+}
+
+export async function getJob(id: string): Promise<Job | null> {
+  const rows = await query<Job>(`SELECT j.id,j.title,j.company,j.location,j.description,j.status,j.created_at::text AS "createdAt",
+    count(r.id)::int AS "referralCount" FROM jobs j LEFT JOIN referrals r ON r.job_id=j.id
+    WHERE j.id=$1 AND j.organization_id=$2 GROUP BY j.id`, [id,orgId]);
+  return rows[0] ?? null;
+}
+
+export async function updateJobStatus(id: string, status: JobStatus): Promise<void> {
+  await query(`UPDATE jobs SET status=$1,updated_at=now() WHERE id=$2 AND organization_id=$3`, [status,id,orgId]);
 }
 
 export async function listInvitations(): Promise<Invitation[]> {
@@ -98,7 +111,7 @@ export async function listRankedOpportunities(memberId: string): Promise<RankedO
     const parsed = parseHeadline(contact.headline);
     return createPerson({id:`linkedin:${contact.linkedinUrl}`,name:contact.name,headline:contact.headline,linkedinUrl:contact.linkedinUrl,currentRole:parsed.role,currentCompany:parsed.company,sources:["linkedin"]});
   });
-  return jobs.filter(job=>job.status==="active").map(job=>({job,candidates:rankCandidates(people,parseJobDescription(`${job.title} - ${job.company} - ${job.location??"Remoto"}\n${job.description}`,job.title)).slice(0,5)}));
+  return jobs.filter(job=>job.status==="open").map(job=>({job,candidates:rankCandidates(people,parseJobDescription(`${job.title} - ${job.company} - ${job.location??"Remoto"}\n${job.description}`,job.title)).slice(0,5)}));
 }
 
 export async function updateGoogleSource(memberId: string, source: "contacts" | "calendar"): Promise<void> {
@@ -118,7 +131,7 @@ export async function submitReferral(memberId: string, input: { jobId: string; c
   const result = await query<{ id: string }>(`INSERT INTO referrals (organization_id,job_id,member_id,candidate_name,candidate_headline,linkedin_url,relationship_note,consented_fields)
     SELECT $1,j.id,$3,c.name,c.headline,c.linkedin_url,$5,$6::jsonb
     FROM jobs j JOIN network_contacts c ON c.member_id=$3 AND c.linkedin_url=$4
-    WHERE j.id=$2 AND j.organization_id=$1 AND j.status='active'
+    WHERE j.id=$2 AND j.organization_id=$1 AND j.status='open'
     ON CONFLICT (job_id,member_id,linkedin_url) WHERE linkedin_url IS NOT NULL
     DO UPDATE SET relationship_note=excluded.relationship_note,updated_at=now()
     RETURNING id`, [orgId,input.jobId,memberId,input.linkedinUrl||null,input.relationshipNote||null,JSON.stringify({name:true,headline:!!input.candidateHeadline,linkedin:!!input.linkedinUrl,note:!!input.relationshipNote})]);
@@ -131,9 +144,105 @@ export async function updateReferralStatus(id: string, status: ReferralStatus): 
 
 export async function dashboardMetrics(): Promise<{ activeJobs: number; members: number; pendingInvites: number; referrals: number }> {
   const rows = await query<{ activeJobs: number; members: number; pendingInvites: number; referrals: number }>(`SELECT
-    (SELECT count(*)::int FROM jobs WHERE organization_id=$1 AND status='active') AS "activeJobs",
+    (SELECT count(*)::int FROM jobs WHERE organization_id=$1 AND status='open') AS "activeJobs",
     (SELECT count(*)::int FROM members WHERE organization_id=$1) AS members,
     (SELECT count(*)::int FROM invitations WHERE organization_id=$1 AND status='pending' AND expires_at>now()) AS "pendingInvites",
     (SELECT count(*)::int FROM referrals WHERE organization_id=$1) AS referrals`, [orgId]);
   return rows[0];
+}
+
+export async function upsertAdministrator(input: { name: string; email: string }): Promise<Administrator> {
+  const rows = await query<Administrator>(`INSERT INTO administrators (organization_id,name,email) VALUES ($1,$2,$3)
+    ON CONFLICT (organization_id,email) DO UPDATE SET name=excluded.name,last_seen_at=now()
+    RETURNING id,name,email,created_at::text AS "createdAt"`, [orgId,input.name.trim(),input.email.trim().toLowerCase()]);
+  return rows[0];
+}
+
+export async function getAdministrator(id: string): Promise<Administrator | null> {
+  const rows = await query<Administrator>(`SELECT id,name,email,created_at::text AS "createdAt" FROM administrators WHERE id=$1 AND organization_id=$2`, [id,orgId]);
+  return rows[0] ?? null;
+}
+
+export async function listAdminNetworkContacts(administratorId?: string): Promise<AdminNetworkContact[]> {
+  return query<AdminNetworkContact>(`SELECT c.id,c.administrator_id AS "administratorId",a.name AS "ownerName",c.name,c.headline,
+    c.linkedin_url AS "linkedinUrl",c.phone,c.source,c.created_at::text AS "createdAt"
+    FROM admin_network_contacts c JOIN administrators a ON a.id=c.administrator_id
+    WHERE c.organization_id=$1 AND ($2::uuid IS NULL OR c.administrator_id=$2)
+    ORDER BY c.created_at DESC`, [orgId,administratorId ?? null]);
+}
+
+export async function replaceAdminNetworkContacts(administratorId: string, contacts: Array<{ name:string; headline?:string|null; linkedinUrl?:string|null; phone?:string|null; source?:string }>): Promise<void> {
+  await transaction(async client => {
+    for (const contact of contacts) {
+      if (contact.linkedinUrl) await client.query(`INSERT INTO admin_network_contacts
+        (organization_id,administrator_id,name,headline,linkedin_url,phone,source) VALUES ($1,$2,$3,$4,$5,$6,$7)
+        ON CONFLICT (administrator_id,linkedin_url) WHERE linkedin_url IS NOT NULL DO UPDATE SET
+        name=excluded.name,headline=excluded.headline,phone=coalesce(excluded.phone,admin_network_contacts.phone),updated_at=now()`,
+        [orgId,administratorId,contact.name,contact.headline||null,contact.linkedinUrl,contact.phone||null,contact.source??"linkedin"]);
+      else await client.query(`INSERT INTO admin_network_contacts
+        (organization_id,administrator_id,name,headline,phone,source) VALUES ($1,$2,$3,$4,$5,$6)`,
+        [orgId,administratorId,contact.name,contact.headline||null,contact.phone||null,contact.source??"linkedin"]);
+    }
+  });
+}
+
+export async function addAdminNetworkContact(administratorId: string, contact: { name:string; headline?:string; linkedinUrl?:string; phone?:string }): Promise<void> {
+  await query(`INSERT INTO admin_network_contacts (organization_id,administrator_id,name,headline,linkedin_url,phone,source)
+    VALUES ($1,$2,$3,$4,$5,$6,'manual')`, [orgId,administratorId,contact.name,contact.headline||null,contact.linkedinUrl||null,contact.phone||null]);
+}
+
+export async function updateAdminContactPhone(administratorId: string, id: string, phone: string): Promise<void> {
+  await query(`UPDATE admin_network_contacts SET phone=$1,updated_at=now() WHERE id=$2 AND administrator_id=$3 AND organization_id=$4`, [phone,id,administratorId,orgId]);
+}
+
+export async function replaceJobRecommendations(jobId: string, recommendations: Array<{ contactId:string; administratorId:string; kind:RecommendationKind; score:number; confidence:number; evidence:string[] }>): Promise<void> {
+  await transaction(async client => {
+    await client.query(`DELETE FROM network_recommendations WHERE job_id=$1 AND organization_id=$2`, [jobId,orgId]);
+    for (const item of recommendations) await client.query(`INSERT INTO network_recommendations
+      (organization_id,job_id,contact_id,administrator_id,kind,score,confidence,evidence)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb)`, [orgId,jobId,item.contactId,item.administratorId,item.kind,item.score,item.confidence,JSON.stringify(item.evidence)]);
+  });
+}
+
+export async function refreshAdminRecommendations(jobId: string): Promise<number> {
+  const job=await getJob(jobId);if(!job||job.status!=="open")return 0;
+  const contacts=await listAdminNetworkContacts();
+  const recommendations=buildAdminRecommendations(job,contacts);
+  await replaceJobRecommendations(jobId,recommendations);
+  return recommendations.length;
+}
+
+export async function listJobRecommendations(jobId: string): Promise<NetworkRecommendation[]> {
+  return query<NetworkRecommendation>(`SELECT nr.id,nr.job_id AS "jobId",nr.contact_id AS "contactId",nr.administrator_id AS "administratorId",
+    a.name AS "ownerName",c.name AS "contactName",c.headline,c.phone,nr.kind,nr.score,nr.evidence,nr.confidence
+    FROM network_recommendations nr JOIN admin_network_contacts c ON c.id=nr.contact_id JOIN administrators a ON a.id=nr.administrator_id
+    WHERE nr.job_id=$1 AND nr.organization_id=$2 ORDER BY nr.kind,nr.score DESC`, [jobId,orgId]);
+}
+
+export async function createOutreachRequests(adminId: string, jobId: string, items: Array<{ recommendationId:string; phone:string; kind:RecommendationKind; message:string }>): Promise<void> {
+  await transaction(async client => {
+    for (const item of items) {
+      await client.query(`INSERT INTO outreach_requests (organization_id,job_id,recommendation_id,created_by,phone,kind,message)
+        SELECT $1,$2,nr.id,$3,$4,$5,$6 FROM network_recommendations nr
+        WHERE nr.id=$7 AND nr.job_id=$2 AND nr.organization_id=$1
+        ON CONFLICT (job_id,recommendation_id,kind) DO UPDATE SET phone=excluded.phone,message=excluded.message,updated_at=now()`,
+        [orgId,jobId,adminId,item.phone,item.kind,item.message,item.recommendationId]);
+    }
+  });
+}
+
+export async function listOutreachRequests(jobId: string): Promise<OutreachRequest[]> {
+  const rows = await query<Omit<OutreachRequest,"whatsappUrl">>(`SELECT o.id,o.job_id AS "jobId",o.recommendation_id AS "recommendationId",
+    c.name AS "contactName",o.phone,o.kind,o.message,o.status,o.created_at::text AS "createdAt"
+    FROM outreach_requests o JOIN network_recommendations nr ON nr.id=o.recommendation_id JOIN admin_network_contacts c ON c.id=nr.contact_id
+    WHERE o.job_id=$1 AND o.organization_id=$2 ORDER BY o.created_at DESC`, [jobId,orgId]);
+  return rows.map(row=>({...row,whatsappUrl:buildWhatsAppUrl(row.phone,row.message)}));
+}
+
+export async function updateOutreach(id: string, adminId: string, input: { message?:string; status?:OutreachStatus }): Promise<void> {
+  await transaction(async client => {
+    const result = await client.query(`UPDATE outreach_requests SET message=coalesce($1,message),status=coalesce($2,status),updated_at=now()
+      WHERE id=$3 AND organization_id=$4 RETURNING id`, [input.message??null,input.status??null,id,orgId]);
+    if (result.rowCount && input.status) await client.query(`INSERT INTO outreach_events (outreach_id,actor_id,event) VALUES ($1,$2,$3)`, [id,adminId,input.status]);
+  });
 }

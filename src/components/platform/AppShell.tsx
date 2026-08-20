@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 
-const adminNav = [["/admin","Visão geral","⌂"],["/admin/vagas","Vagas","◇"],["/admin/equipe","Equipe","◎"],["/admin/indicacoes","Indicações","↗"]] as const;
+const adminNav = [["/admin","Visão geral","⌂"],["/admin/vagas","Vagas","◇"],["/admin/rede","Rede","⌁"],["/admin/equipe","Equipe","◎"],["/admin/indicacoes","Indicações","↗"]] as const;
 const memberNav = [["/app","Início","⌂"],["/app/oportunidades","Oportunidades","✦"],["/app/conexoes","Conexões","⌁"]] as const;
 
 export function AppShell({ mode, name, children }: { mode: "admin" | "member"; name: string; children: ReactNode }) {
@@ -13,7 +13,7 @@ export function AppShell({ mode, name, children }: { mode: "admin" | "member"; n
     </header>
     <aside className="fixed bottom-0 left-0 top-16 hidden w-60 border-r border-[var(--line)] bg-[#0a0c11] p-4 lg:block"><p className="mb-3 px-3 font-mono text-[10px] uppercase tracking-[.16em] text-[var(--muted)]">{mode === "admin" ? "Operação" : "Minha área"}</p><nav className="space-y-1">{nav.map(([href,label,icon]) => <Link key={href} href={href} className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-[#aeb4c0] transition hover:bg-[var(--surface-2)] hover:text-white"><span className="w-5 text-center text-[#8197dd]">{icon}</span>{label}</Link>)}</nav><div className="absolute bottom-5 left-4 right-4 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-3 text-xs text-[var(--muted)]"><span className="mb-2 block text-[var(--green)]">● Privacidade ativa</span>{mode === "admin" ? "Você só vê indicações consentidas." : "Nada é compartilhado sem sua confirmação."}</div></aside>
     <main className="min-h-dvh px-4 pb-[calc(6rem+env(safe-area-inset-bottom))] pt-20 sm:px-5 sm:pt-24 lg:ml-60 lg:px-10 lg:pb-10">{children}</main>
-    <nav aria-label="Navegação principal" className={`fixed inset-x-0 bottom-0 z-30 grid ${mode === "admin" ? "grid-cols-4" : "grid-cols-3"} border-t border-[var(--line)] bg-[#090a0e]/95 px-1 pt-2 pb-[max(.5rem,env(safe-area-inset-bottom))] backdrop-blur lg:hidden`}>{nav.map(([href,label,icon]) => <Link key={href} href={href} className="flex min-h-12 min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg px-1 text-[10px] text-[var(--muted)]"><span aria-hidden="true" className="text-base text-[#8197dd]">{icon}</span><span className="max-w-full truncate">{label}</span></Link>)}</nav>
+    <nav aria-label="Navegação principal" className={`fixed inset-x-0 bottom-0 z-30 grid ${mode === "admin" ? "grid-cols-5" : "grid-cols-3"} border-t border-[var(--line)] bg-[#090a0e]/95 px-1 pt-2 pb-[max(.5rem,env(safe-area-inset-bottom))] backdrop-blur lg:hidden`}>{nav.map(([href,label,icon]) => <Link key={href} href={href} className="flex min-h-12 min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg px-0.5 text-[9px] text-[var(--muted)] sm:px-1 sm:text-[10px]"><span aria-hidden="true" className="text-base text-[#8197dd]">{icon}</span><span className="max-w-full truncate">{label}</span></Link>)}</nav>
   </div>;
 }
 

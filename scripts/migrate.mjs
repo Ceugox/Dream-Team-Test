@@ -24,9 +24,81 @@ CREATE TABLE IF NOT EXISTS jobs (
   company text NOT NULL,
   location text,
   description text NOT NULL,
-  status text NOT NULL DEFAULT 'active' CHECK (status IN ('draft','active','closed')),
+  status text NOT NULL DEFAULT 'open',
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE jobs DROP CONSTRAINT IF EXISTS jobs_status_check;
+UPDATE jobs SET status='open' WHERE status='active';
+UPDATE jobs SET status='filled' WHERE status='closed';
+ALTER TABLE jobs ALTER COLUMN status SET DEFAULT 'open';
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='jobs_status_v2_check') THEN
+    ALTER TABLE jobs ADD CONSTRAINT jobs_status_v2_check CHECK (status IN ('draft','open','screening','interviewing','offer','filled','paused','cancelled'));
+  END IF;
+END $$;
+
+CREATE TABLE IF NOT EXISTS administrators (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  organization_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  name text NOT NULL,
+  email text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  last_seen_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (organization_id,email)
+);
+
+CREATE TABLE IF NOT EXISTS admin_network_contacts (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  organization_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  administrator_id uuid NOT NULL REFERENCES administrators(id) ON DELETE CASCADE,
+  name text NOT NULL,
+  headline text,
+  linkedin_url text,
+  phone text,
+  source text NOT NULL DEFAULT 'manual',
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS network_recommendations (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  organization_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  job_id uuid NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  contact_id uuid NOT NULL REFERENCES admin_network_contacts(id) ON DELETE CASCADE,
+  administrator_id uuid NOT NULL REFERENCES administrators(id) ON DELETE CASCADE,
+  kind text NOT NULL CHECK (kind IN ('candidate_fit','connector_fit')),
+  score double precision NOT NULL CHECK (score >= 0 AND score <= 1),
+  confidence double precision NOT NULL CHECK (confidence >= 0 AND confidence <= 1),
+  evidence jsonb NOT NULL DEFAULT '[]'::jsonb,
+  algorithm_version text NOT NULL DEFAULT 'admin-network-v1',
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (job_id,contact_id,kind)
+);
+
+CREATE TABLE IF NOT EXISTS outreach_requests (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  organization_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  job_id uuid NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  recommendation_id uuid NOT NULL REFERENCES network_recommendations(id) ON DELETE CASCADE,
+  created_by uuid NOT NULL REFERENCES administrators(id) ON DELETE CASCADE,
+  phone text NOT NULL,
+  kind text NOT NULL CHECK (kind IN ('candidate_fit','connector_fit')),
+  message text NOT NULL,
+  status text NOT NULL DEFAULT 'prepared' CHECK (status IN ('prepared','opened','manually_confirmed_sent','replied','referred','no_response','cancelled')),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (job_id,recommendation_id,kind)
+);
+
+CREATE TABLE IF NOT EXISTS outreach_events (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  outreach_id uuid NOT NULL REFERENCES outreach_requests(id) ON DELETE CASCADE,
+  actor_id uuid NOT NULL REFERENCES administrators(id) ON DELETE CASCADE,
+  event text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS invitations (
@@ -90,6 +162,11 @@ CREATE INDEX IF NOT EXISTS invitations_org_status_idx ON invitations(organizatio
 CREATE INDEX IF NOT EXISTS members_org_idx ON members(organization_id);
 CREATE INDEX IF NOT EXISTS referrals_org_status_idx ON referrals(organization_id, status);
 CREATE INDEX IF NOT EXISTS contacts_member_idx ON network_contacts(member_id);
+CREATE INDEX IF NOT EXISTS administrators_org_idx ON administrators(organization_id);
+CREATE INDEX IF NOT EXISTS admin_contacts_org_owner_idx ON admin_network_contacts(organization_id,administrator_id);
+CREATE UNIQUE INDEX IF NOT EXISTS admin_contacts_linkedin_unique_idx ON admin_network_contacts(administrator_id,linkedin_url) WHERE linkedin_url IS NOT NULL;
+CREATE INDEX IF NOT EXISTS recommendations_job_kind_idx ON network_recommendations(job_id,kind,score DESC);
+CREATE INDEX IF NOT EXISTS outreach_job_status_idx ON outreach_requests(job_id,status);
 CREATE UNIQUE INDEX IF NOT EXISTS referrals_unique_candidate_idx ON referrals(job_id, member_id, linkedin_url) WHERE linkedin_url IS NOT NULL;
 
 INSERT INTO organizations (id, name)

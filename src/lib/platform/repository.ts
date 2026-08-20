@@ -137,6 +137,17 @@ export async function replaceNetworkContacts(memberId: string, contacts: Array<{
   });
 }
 
+export async function upsertNetworkContacts(memberId: string, contacts: Array<{name:string;headline?:string|null;profileUrl:string}>): Promise<void> {
+  if (!contacts.length) return;
+  await transaction(async client => {
+    for (const contact of contacts) {
+      await client.query(`INSERT INTO network_contacts (member_id,name,headline,linkedin_url) VALUES ($1,$2,$3,$4)
+        ON CONFLICT (member_id,linkedin_url) DO UPDATE SET name=excluded.name,headline=coalesce(excluded.headline,network_contacts.headline)`, [memberId,contact.name,contact.headline||null,contact.profileUrl]);
+    }
+    await client.query(`UPDATE member_sources SET linkedin_status='connected',linkedin_count=(SELECT count(*) FROM network_contacts WHERE member_id=$1),updated_at=now() WHERE member_id=$1`, [memberId]);
+  });
+}
+
 export type RankedOpportunity = { job: Job; candidates: Array<Person & { referralEvidence:string[] }> };
 export async function listRankedOpportunities(memberId: string): Promise<RankedOpportunity[]> {
   const [jobs,contacts] = await Promise.all([
@@ -296,7 +307,7 @@ export async function replaceAdminNetworkContacts(administratorId: string, conta
       if (contact.linkedinUrl) await client.query(`INSERT INTO admin_network_contacts
         (organization_id,administrator_id,name,headline,linkedin_url,phone,source,profile_context,network_capital_score,network_capital_evidence,network_capital_confidence) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11)
         ON CONFLICT (administrator_id,linkedin_url) WHERE linkedin_url IS NOT NULL DO UPDATE SET
-        name=excluded.name,headline=excluded.headline,phone=coalesce(excluded.phone,admin_network_contacts.phone),profile_context=coalesce(excluded.profile_context,admin_network_contacts.profile_context),
+        name=excluded.name,headline=coalesce(excluded.headline,admin_network_contacts.headline),phone=coalesce(excluded.phone,admin_network_contacts.phone),profile_context=coalesce(excluded.profile_context,admin_network_contacts.profile_context),
         network_capital_score=greatest(excluded.network_capital_score,admin_network_contacts.network_capital_score),
         network_capital_evidence=case when jsonb_array_length(excluded.network_capital_evidence)>0 then excluded.network_capital_evidence else admin_network_contacts.network_capital_evidence end,
         network_capital_confidence=greatest(excluded.network_capital_confidence,admin_network_contacts.network_capital_confidence),updated_at=now()`,

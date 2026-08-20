@@ -225,6 +225,33 @@ export async function markFinished(
   return rows[0] ? toSession(rows[0]) : null;
 }
 
+export async function countActiveSessions(db: QueryGateway = database): Promise<number> {
+  const rows = await db.query<{ count: string | number }>(`SELECT count(*) AS count FROM linkedin_sync_sessions
+    WHERE status NOT IN ('completed','cancelled','failed','expired')`, []);
+  return Number(rows[0]?.count ?? 0);
+}
+
+export async function recordEnrichmentResult(
+  owner: LinkedInOwner,
+  sessionId: string,
+  outcome: "enriched" | "failed",
+  db: QueryGateway = database,
+): Promise<LinkedInSession | null> {
+  const column = outcome === "enriched" ? "enriched_count=enriched_count+1" : "failed_count=failed_count+1";
+  const rows = await db.query<StoredSession>(`UPDATE linkedin_sync_sessions SET
+    ${column},updated_at=now(),version=version+1
+    WHERE id=$1 AND owner_type=$2 AND owner_id=$3 AND organization_id=$4
+    RETURNING ${sessionFields}`, [sessionId, ...ownerValues(owner)]);
+  return rows[0] ? toSession(rows[0]) : null;
+}
+
+export async function findAllExpiredSessions(db: QueryGateway = database): Promise<LinkedInSession[]> {
+  const rows = await db.query<StoredSession>(`SELECT ${sessionFields} FROM linkedin_sync_sessions
+    WHERE expires_at <= now() AND status NOT IN ('completed','cancelled','failed','expired')
+    ORDER BY expires_at ASC`, []);
+  return rows.map(toSession);
+}
+
 export async function findExpiredSessions(owner: LinkedInOwner, db: QueryGateway = database): Promise<LinkedInSession[]> {
   const rows = await db.query<StoredSession>(`SELECT ${sessionFields} FROM linkedin_sync_sessions
     WHERE owner_type=$1 AND owner_id=$2 AND organization_id=$3

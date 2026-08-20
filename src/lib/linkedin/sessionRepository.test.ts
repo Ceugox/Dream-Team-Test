@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  countActiveSessions,
   createSession,
+  findAllExpiredSessions,
   findOwnedSession,
   markFinished,
+  recordEnrichmentResult,
   saveInventoryContact,
   saveProfileSnapshot,
   transitionOwnedSession,
@@ -176,5 +179,34 @@ describe("LinkedIn session repository", () => {
       expiresAt: new Date(1),
       providerSessionReference: rawTokenEnvelope as never,
     }, db)).rejects.toThrow("INVALID_ENCRYPTED_PROVIDER_SESSION_REFERENCE");
+  });
+
+  it("counts active sessions across all owners for the global capacity limit", async () => {
+    const { db, calls } = gateway([[{ count: "2" }]]);
+
+    await expect(countActiveSessions(db)).resolves.toBe(2);
+    expect(calls[0].text).toMatch(/NOT IN \('completed','cancelled','failed','expired'\)/);
+    expect(calls[0].values).toEqual([]);
+  });
+
+  it("increments enrichment counters atomically scoped to the owner", async () => {
+    const enriched = gateway([[rawStoredSession]]);
+    await recordEnrichmentResult(admin, "session-1", "enriched", enriched.db);
+    expect(enriched.calls[0].text).toMatch(/enriched_count=enriched_count\+1/);
+    expect(enriched.calls[0].values).toEqual(["session-1", "admin", "admin-1", "org-1"]);
+
+    const failed = gateway([[rawStoredSession]]);
+    await recordEnrichmentResult(admin, "session-1", "failed", failed.db);
+    expect(failed.calls[0].text).toMatch(/failed_count=failed_count\+1/);
+  });
+
+  it("finds expired sessions of every owner for the watchdog", async () => {
+    const { db, calls } = gateway([[rawStoredSession]]);
+
+    const sessions = await findAllExpiredSessions(db);
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].owner).toEqual(admin);
+    expect(calls[0].text).toMatch(/expires_at <= now\(\)/);
+    expect(calls[0].values).toEqual([]);
   });
 });

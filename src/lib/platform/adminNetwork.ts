@@ -1,7 +1,10 @@
 import { z } from "zod";
 import type { JobProfile } from "../domain/job";
+import type { InventoryEntry, ProfessionalProfile } from "../linkedin/collectors/schemas";
+import type { LinkedInOwner } from "../linkedin/types";
 import { normalizePhone } from "./whatsapp";
 import { inferNetworkCapital } from "./networkCapital";
+import { replaceAdminNetworkContacts, upsertNetworkContacts } from "./repository";
 
 const TextOrList = z.union([z.string().max(4000),z.array(z.string().max(500)).max(30)]);
 
@@ -34,6 +37,65 @@ export function parseAdminNetworkFile(data: unknown): AdminNetworkInput[] {
     unique.set(key,{name:item.name,headline,linkedinUrl,phone:item.phone?normalizePhone(item.phone):previous?.phone??null,source:"linkedin",profileContext,networkCapitalScore:capital.score,networkCapitalEvidence:capital.evidence,networkCapitalConfidence:capital.confidence});
   }
   return [...unique.values()];
+}
+
+function withCapital(input: { name:string; headline:string|null; linkedinUrl:string|null; profileContext:string|null }): AdminNetworkInput {
+  const capital = inferNetworkCapital({ headline: input.headline, profileContext: input.profileContext });
+  return { ...input, phone: null, source: "linkedin", networkCapitalScore: capital.score, networkCapitalEvidence: capital.evidence, networkCapitalConfidence: capital.confidence };
+}
+
+export function inventoryEntryToContact(entry: InventoryEntry): AdminNetworkInput | null {
+  const linkedinUrl = entry.profileUrl.value;
+  if (!linkedinUrl) return null;
+  const name = entry.name.value ?? linkedinUrl.split("/in/")[1]?.replace(/[-_]/g, " ") ?? linkedinUrl;
+  const profileContext = entry.location.value ? `Localização: ${entry.location.value}` : null;
+  return withCapital({ name, headline: entry.headline.value, linkedinUrl, profileContext });
+}
+
+export function professionalProfileToContact(profile: ProfessionalProfile): AdminNetworkInput | null {
+  const name = profile.name.value;
+  if (!name) return null;
+  const roles = (profile.roles.value ?? []).map(role => [role.title, role.company].filter(Boolean).join(" @ ")).filter(Boolean);
+  const education = (profile.education.value ?? []).map(entry => [entry.degree, entry.school].filter(Boolean).join(" — ")).filter(Boolean);
+  const certifications = (profile.certifications.value ?? []).map(entry => entry.name).filter(Boolean);
+  const skills = profile.skills.value ?? [];
+  const languages = profile.languages.value ?? [];
+  const international = profile.internationalExperience.value ?? [];
+  const profileContext = [
+    profile.summary.value,
+    roles.join(" · "),
+    education.join(" · "),
+    skills.length ? `Skills: ${skills.join(", ")}` : "",
+    languages.length ? `Idiomas: ${languages.join(", ")}` : "",
+    certifications.join(" · "),
+    international.length ? `Experiência internacional: ${international.join(", ")}` : "",
+    profile.location.value ? `Localização: ${profile.location.value}` : "",
+  ].filter(Boolean).join(" · ").slice(0, 12000) || null;
+  return withCapital({ name, headline: profile.headline.value, linkedinUrl: profile.profileUrl.value, profileContext });
+}
+
+export async function persistLinkedInInventory(owner: LinkedInOwner, entries: InventoryEntry[]): Promise<void> {
+  if (owner.type === "admin") {
+    const contacts = entries.map(inventoryEntryToContact).filter((contact): contact is AdminNetworkInput => contact !== null);
+    if (contacts.length) await replaceAdminNetworkContacts(owner.id, contacts);
+    return;
+  }
+  const contacts = entries.flatMap(entry => entry.profileUrl.value
+    ? [{ name: entry.name.value ?? entry.profileUrl.value, headline: entry.headline.value, profileUrl: entry.profileUrl.value }]
+    : []);
+  if (contacts.length) await upsertNetworkContacts(owner.id, contacts);
+}
+
+export async function persistLinkedInProfile(owner: LinkedInOwner, profile: ProfessionalProfile): Promise<void> {
+  const contact = professionalProfileToContact(profile);
+  if (!contact) return;
+  if (owner.type === "admin") {
+    await replaceAdminNetworkContacts(owner.id, [contact]);
+    return;
+  }
+  if (contact.linkedinUrl) {
+    await upsertNetworkContacts(owner.id, [{ name: contact.name, headline: contact.headline, profileUrl: contact.linkedinUrl }]);
+  }
 }
 
 export function scoreConnectorFit(contact: { headline:string|null; profileContext?:string|null; networkCapitalScore?:number; networkCapitalEvidence?:string[] }, job: JobProfile): { score:number; evidence:string[] } {

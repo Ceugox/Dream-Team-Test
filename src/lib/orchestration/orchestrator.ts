@@ -105,12 +105,19 @@ export async function claimTask(workerId:string):Promise<OrchestrationTask|null>
         AND NOT EXISTS (SELECT 1 FROM unnest(t.depends_on) dependency JOIN orchestration_tasks d ON d.id=dependency WHERE d.status<>'completed')
         AND NOT EXISTS (SELECT 1 FROM orchestration_workflows w WHERE w.id=t.workflow_id AND w.status IN ('failed','cancelled'))
       ORDER BY t.priority,t.created_at FOR UPDATE SKIP LOCKED LIMIT 1)
-      UPDATE orchestration_tasks t SET status='running',attempts=t.attempts+1,locked_by=$1,lease_until=now()+make_interval(secs=>t.timeout_seconds+15),started_at=coalesce(t.started_at,now()),updated_at=now()
+      UPDATE orchestration_tasks t SET status='running',attempts=t.attempts+1,locked_by=$1,lease_until=now()+make_interval(secs=>90),started_at=coalesce(t.started_at,now()),updated_at=now()
       FROM candidate WHERE t.id=candidate.id RETURNING t.id,t.workflow_id AS "workflowId",t.task_type AS "taskType",t.payload,t.token_budget AS "tokenBudget",t.timeout_seconds AS "timeoutSeconds",t.attempts,t.max_attempts AS "maxAttempts"`,[workerId]);
     if(!result.rows[0])return null;
     await client.query(`UPDATE orchestration_workflows SET status='running',started_at=coalesce(started_at,now()),updated_at=now() WHERE id=$1 AND status='pending'`,[result.rows[0].workflowId]);
     return result.rows[0];
   });
+}
+
+// Lease curto (90s) renovado por heartbeat: se o worker morrer por deploy/crash,
+// a task volta para a fila em no máximo ~2 minutos em vez de esperar o timeout inteiro.
+export async function extendTaskLease(taskId:string,workerId:string):Promise<void>{
+  await query(`UPDATE orchestration_tasks SET lease_until=now()+make_interval(secs=>90),updated_at=now()
+    WHERE id=$1 AND locked_by=$2 AND status='running'`,[taskId,workerId]);
 }
 
 export async function completeTask(task:OrchestrationTask,result:unknown):Promise<void>{

@@ -12,6 +12,14 @@ describe("public application origin", () => {
     expect(resolvePublicOrigin(request, { RAILWAY_PUBLIC_DOMAIN: "referral.example.up.railway.app" })).toBe("https://referral.example.up.railway.app");
   });
 
+  it("rejects a loopback APP_URL when Railway provides a public domain", () => {
+    const request = new Request("http://localhost:8080/api/admin/invitations");
+    expect(resolvePublicOrigin(request, {
+      APP_URL: "https://localhost:8080",
+      RAILWAY_PUBLIC_DOMAIN: "referral.example.up.railway.app",
+    })).toBe("https://referral.example.up.railway.app");
+  });
+
   it("respects trusted proxy headers outside Railway", () => {
     const request = new Request("http://localhost:3000/api/admin/invitations", { headers: { "x-forwarded-host": "people.example.com", "x-forwarded-proto": "https" } });
     expect(resolvePublicOrigin(request, {})).toBe("https://people.example.com");

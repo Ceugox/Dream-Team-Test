@@ -9,12 +9,18 @@ function validOrigin(value: string | undefined, defaultProtocol = "https:"): str
   }
 }
 
+function isLoopbackOrigin(origin: string): boolean {
+  const hostname = new URL(origin).hostname;
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
+}
+
 export function resolvePublicOrigin(request: Request, env: Readonly<Record<string, string | undefined>> = process.env): string {
   const configured = validOrigin(env.APP_URL) || validOrigin(env.NEXT_PUBLIC_APP_URL);
-  if (configured) return configured;
-
   const railway = validOrigin(env.RAILWAY_PUBLIC_DOMAIN);
+
+  if (configured && (!railway || !isLoopbackOrigin(configured))) return configured;
   if (railway) return railway;
+  if (configured) return configured;
 
   const forwardedHost = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
   const host = forwardedHost || request.headers.get("host")?.trim();

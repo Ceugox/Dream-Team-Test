@@ -52,7 +52,7 @@ export type Referral = {
 
 export type Administrator = { id: string; name: string; email: string; createdAt: string };
 export type AdminSourceConnection = {
-  provider: "google"; accountEmail: string | null; status: "connected" | "error" | "revoked";
+  provider: "google" | "linkedin"; accountEmail: string | null; status: "connected" | "error" | "revoked";
   contactCount: number; connectedAt: string;
 };
 export type AdminNetworkContact = {

@@ -66,7 +66,7 @@ CREATE TABLE IF NOT EXISTS admin_source_connections (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   organization_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   administrator_id uuid NOT NULL REFERENCES administrators(id) ON DELETE CASCADE,
-  provider text NOT NULL CHECK (provider IN ('google')),
+  provider text NOT NULL CHECK (provider IN ('google','linkedin')),
   external_account_id text,
   account_email text,
   status text NOT NULL DEFAULT 'connected' CHECK (status IN ('connected','error','revoked')),
@@ -76,6 +76,9 @@ CREATE TABLE IF NOT EXISTS admin_source_connections (
   updated_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE (administrator_id,provider)
 );
+
+ALTER TABLE admin_source_connections DROP CONSTRAINT IF EXISTS admin_source_connections_provider_check;
+ALTER TABLE admin_source_connections ADD CONSTRAINT admin_source_connections_provider_check CHECK (provider IN ('google','linkedin'));
 
 ALTER TABLE admin_network_contacts ADD COLUMN IF NOT EXISTS profile_context text;
 ALTER TABLE admin_network_contacts ADD COLUMN IF NOT EXISTS network_capital_score double precision NOT NULL DEFAULT 0;

@@ -242,6 +242,31 @@ export async function replaceGoogleAdminNetworkContacts(administratorId: string,
   });
 }
 
+export async function replaceLinkedInAdminNetworkContacts(administratorId: string, input: {
+  accountId: string | null; accountEmail: string | null; scopes: string[];
+  contacts: Array<{name:string;headline:string|null;phone:null;profileContext:string}>;
+}): Promise<number> {
+  return transaction(async client => {
+    await client.query(`DELETE FROM admin_network_contacts WHERE organization_id=$1 AND administrator_id=$2 AND source='linkedin'`, [orgId,administratorId]);
+    let inserted=0;
+    for(const contact of input.contacts){
+      const capital=inferNetworkCapital({headline:contact.headline,profileContext:contact.profileContext});
+      await client.query(`INSERT INTO admin_network_contacts
+        (organization_id,administrator_id,name,headline,phone,source,profile_context,network_capital_score,network_capital_evidence,network_capital_confidence)
+        VALUES ($1,$2,$3,$4,NULL,'linkedin',$5,$6,$7::jsonb,$8)`,
+        [orgId,administratorId,contact.name,contact.headline,contact.profileContext,capital.score,JSON.stringify(capital.evidence),capital.confidence]);
+      inserted++;
+    }
+    await client.query(`INSERT INTO admin_source_connections
+      (organization_id,administrator_id,provider,external_account_id,account_email,status,contact_count,scopes,connected_at,updated_at)
+      VALUES ($1,$2,'linkedin',$3,$4,'connected',$5,$6,now(),now())
+      ON CONFLICT (administrator_id,provider) DO UPDATE SET external_account_id=excluded.external_account_id,
+      account_email=excluded.account_email,status='connected',contact_count=excluded.contact_count,scopes=excluded.scopes,
+      connected_at=now(),updated_at=now()`, [orgId,administratorId,input.accountId,input.accountEmail,inserted,input.scopes]);
+    return inserted;
+  });
+}
+
 export async function enrichAdminNetworkContacts(administratorId: string, limit = 4): Promise<{processed:number;enriched:number;unconfirmed:number;failed:number}> {
   if (!isInferenceConfigured()) throw new Error("OPENROUTER_NOT_CONFIGURED");
   const contacts = await query<Pick<AdminNetworkContact,"id"|"name"|"headline"|"linkedinUrl"|"profileContext">>(`SELECT id,name,headline,linkedin_url AS "linkedinUrl",profile_context AS "profileContext"

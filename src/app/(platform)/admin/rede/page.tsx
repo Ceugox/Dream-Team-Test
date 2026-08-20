@@ -10,13 +10,15 @@ export default async function AdminNetworkPage() {
   const phones = contacts.filter(item => item.phone).length;
   const enriched = contacts.filter(item => item.publicEnrichmentStatus === "enriched").length;
   const linkedinCount = contacts.filter(item => item.source === "linkedin").length;
+  const linkedin = connections.find(item => item.provider === "linkedin");
   const google = connections.find(item => item.provider === "google");
   const googleCount = contacts.filter(item => item.source === "google").length;
   const googleConfigured = Boolean((process.env.GOOGLE_OAUTH_CLIENT_ID || process.env.GOOGLE_CLIENT_ID) && (process.env.GOOGLE_OAUTH_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET));
+  const linkedinConfigured = Boolean((process.env.LINKEDIN_OAUTH_CLIENT_ID || process.env.LINKEDIN_CLIENT_ID) && (process.env.LINKEDIN_OAUTH_CLIENT_SECRET || process.env.LINKEDIN_CLIENT_SECRET));
 
   return <>
     <PageHeader eyebrow="Inteligência coletiva" title="Minha rede" description="Conecte suas contas e deixe a plataforma encontrar quem pode indicar os melhores candidatos." />
-    <AdminNetworkConnections linkedinCount={linkedinCount} googleConnected={google?.status === "connected"} googleCount={googleCount} googleAccountEmail={google?.accountEmail ?? null} googleConfigured={googleConfigured} />
+    <AdminNetworkConnections linkedinConnected={linkedin?.status === "connected"} linkedinCount={linkedinCount} linkedinAccountEmail={linkedin?.accountEmail ?? null} linkedinConfigured={linkedinConfigured} googleConnected={google?.status === "connected"} googleCount={googleCount} googleAccountEmail={google?.accountEmail ?? null} googleConfigured={googleConfigured} />
     <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3"><Metric label="Contatos privados" value={contacts.length} /><Metric label="Com WhatsApp" value={phones} /><Metric label="Perfis enriquecidos" value={enriched} className="col-span-2 sm:col-span-1" /></div>
     {contacts.length > 0 && <div className="mt-6"><PublicDiscovery /></div>}
     <details className="group mt-6 rounded-2xl border border-[var(--line)] bg-[var(--surface)]">

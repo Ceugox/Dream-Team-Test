@@ -22,7 +22,7 @@ export interface LinkedInSession {
   inventoryCount: number;
   enrichedCount: number;
   failedCount: number;
-  providerSessionReference: string;
+  providerSessionReference: string | null;
   createdAt: Date;
   expiresAt: Date;
   failureCode: string | null;

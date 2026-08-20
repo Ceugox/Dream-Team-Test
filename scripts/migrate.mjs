@@ -194,6 +194,47 @@ CREATE TABLE IF NOT EXISTS network_contacts (
   UNIQUE (member_id, linkedin_url)
 );
 
+CREATE TABLE IF NOT EXISTS linkedin_sync_sessions (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  owner_type text NOT NULL CHECK (owner_type IN ('admin','member')),
+  owner_id uuid NOT NULL,
+  organization_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  status text NOT NULL DEFAULT 'preparing' CHECK (status IN (
+    'preparing','awaiting_login','authenticated','inventorying','enriching',
+    'results_available','completed','needs_attention','paused_rate_limit',
+    'cancelled','failed','expired'
+  )),
+  inventory_count integer NOT NULL DEFAULT 0 CHECK (inventory_count >= 0),
+  enriched_count integer NOT NULL DEFAULT 0 CHECK (enriched_count >= 0),
+  failed_count integer NOT NULL DEFAULT 0 CHECK (failed_count >= 0),
+  provider_session_reference text,
+  consented_at timestamptz,
+  consent_version text,
+  failure_code text,
+  failure_message_safe text,
+  version integer NOT NULL DEFAULT 1 CHECK (version > 0),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  expires_at timestamptz NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS linkedin_profile_snapshots (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  session_id uuid NOT NULL REFERENCES linkedin_sync_sessions(id) ON DELETE CASCADE,
+  owner_type text NOT NULL CHECK (owner_type IN ('admin','member')),
+  owner_id uuid NOT NULL,
+  organization_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  linkedin_url text NOT NULL,
+  schema_version integer NOT NULL CHECK (schema_version > 0),
+  professional_data jsonb NOT NULL DEFAULT '{}'::jsonb,
+  source_url text NOT NULL,
+  observed_at timestamptz NOT NULL,
+  extraction_confidence double precision NOT NULL CHECK (extraction_confidence >= 0 AND extraction_confidence <= 1),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (owner_type, owner_id, organization_id, linkedin_url)
+);
+
 CREATE TABLE IF NOT EXISTS referrals (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   organization_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
@@ -214,6 +255,9 @@ CREATE INDEX IF NOT EXISTS invitations_org_status_idx ON invitations(organizatio
 CREATE INDEX IF NOT EXISTS members_org_idx ON members(organization_id);
 CREATE INDEX IF NOT EXISTS referrals_org_status_idx ON referrals(organization_id, status);
 CREATE INDEX IF NOT EXISTS contacts_member_idx ON network_contacts(member_id);
+CREATE INDEX IF NOT EXISTS linkedin_sync_sessions_owner_status_idx ON linkedin_sync_sessions(owner_type,owner_id,organization_id,status);
+CREATE INDEX IF NOT EXISTS linkedin_sync_sessions_expiry_idx ON linkedin_sync_sessions(expires_at) WHERE status NOT IN ('completed','cancelled','failed','expired');
+CREATE INDEX IF NOT EXISTS linkedin_profile_snapshots_owner_observed_idx ON linkedin_profile_snapshots(owner_type,owner_id,organization_id,observed_at DESC);
 CREATE INDEX IF NOT EXISTS administrators_org_idx ON administrators(organization_id);
 CREATE INDEX IF NOT EXISTS admin_contacts_org_owner_idx ON admin_network_contacts(organization_id,administrator_id);
 CREATE INDEX IF NOT EXISTS admin_source_connections_owner_idx ON admin_source_connections(administrator_id,provider);

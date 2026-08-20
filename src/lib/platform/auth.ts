@@ -6,6 +6,9 @@ const MEMBER_COOKIE = "rc_member";
 
 export type AdminSession = { role: "admin"; administratorId: string; organizationId: string; exp: number };
 export type MemberSession = { role: "member"; memberId: string; organizationId: string; exp: number };
+export type AuthenticatedActor =
+  | { role: "admin"; ownerId: string; organizationId: string }
+  | { role: "member"; ownerId: string; organizationId: string };
 
 function secret(): string {
   const value = process.env.APP_SECRET;
@@ -66,6 +69,17 @@ export async function getMemberSession(): Promise<MemberSession | null> {
   const store = await cookies();
   const session = decode<MemberSession>(store.get(MEMBER_COOKIE)?.value);
   return session?.role === "member" ? session : null;
+}
+
+export async function getAuthenticatedActor(): Promise<AuthenticatedActor | null> {
+  const admin = await getAdminSession();
+  if (admin) {
+    return { role: "admin", ownerId: admin.administratorId, organizationId: admin.organizationId };
+  }
+
+  const member = await getMemberSession();
+  if (!member || !member.memberId || !member.organizationId) return null;
+  return { role: "member", ownerId: member.memberId, organizationId: member.organizationId };
 }
 
 export async function clearSessions(): Promise<void> {

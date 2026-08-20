@@ -10,8 +10,12 @@ const observedAt = "2026-08-20T12:00:00.000Z";
 
 const config: LinkedInProviderConfig = {
   enabled: true,
+  provider: "browserless",
   endpoint: "https://production-sfo.browserless.io",
   token: "provider-secret",
+  anchorApiUrl: "https://api.anchorbrowser.io",
+  anchorConnectUrl: "wss://connect.anchorbrowser.io",
+  anchorApiKey: "",
   maxConcurrentSessions: 2,
   loginTimeoutMs: 600000,
   reconnectTimeoutMs: 30000,

@@ -58,7 +58,10 @@ export interface PublicLinkedInSession {
 
 export interface LinkedInPublicConfig {
   enabled: boolean;
+  provider: "browserless" | "anchor";
   endpoint: string;
+  anchorApiUrl: string;
+  anchorConnectUrl: string;
   maxConcurrentSessions: number;
   loginTimeoutMs: number;
   reconnectTimeoutMs: number;
@@ -69,4 +72,5 @@ export interface LinkedInPublicConfig {
 
 export interface LinkedInProviderConfig extends LinkedInPublicConfig {
   token: string;
+  anchorApiKey: string;
 }

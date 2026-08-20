@@ -57,7 +57,7 @@ describe("LinkedInRemoteConnector", () => {
   });
 
   function renderConnector(onFinished?: () => void) {
-    return render(<LinkedInRemoteConnector appearance="cta" connected={false} contactCount={0} onFinished={onFinished} />);
+    return render(<LinkedInRemoteConnector appearance="cta" connected={false} contactCount={0} fallbackEndpoint="/api/member/linkedin" onFinished={onFinished} />);
   }
 
   it("shows the approved copy with the trust microcopy", () => {
@@ -153,6 +153,21 @@ describe("LinkedInRemoteConnector", () => {
     expect(tab.close).toHaveBeenCalled();
     expect(screen.getByRole("alert").textContent).toContain("Outra sessão está em andamento");
     expect(screen.getByRole("button", { name: "Tentar de novo" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Usar o conector local (extensão) →" })).toBeTruthy();
+  });
+
+  it("offers the local extension flow as fallback after a failure", async () => {
+    vi.spyOn(window, "open").mockReturnValue(null);
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({ ok: false, status: 503, json: async () => ({ error: "sync_disabled" }) } as never);
+    const postMessageSpy = vi.spyOn(window, "postMessage");
+    renderConnector();
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Continuar com LinkedIn →" })); });
+
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Usar o conector local (extensão) →" })); });
+    expect(postMessageSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ source: "referral-copilot-app", type: "rc:start-linkedin-sync" }),
+      window.location.origin,
+    );
   });
 
   it("keeps touch targets at 44px minimum and fluid widths for small screens", () => {

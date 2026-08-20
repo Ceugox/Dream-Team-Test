@@ -13,6 +13,17 @@ Nenhum valor de chave real neste documento.
 Desligar a flag é o **rollback padrão**: nenhuma migração precisa ser revertida e o
 watchdog continua expirando sessões órfãs mesmo com a flag desligada.
 
+## Provider de browser remoto
+
+`LINKEDIN_BROWSER_PROVIDER` seleciona o provider: `anchor` (default; free tier com live view —
+`ANCHOR_API_KEY`, `ANCHOR_API_URL`, `ANCHOR_CONNECT_URL`) ou `browserless` (exige plano pago
+com Hybrid Automation/LiveURL — o free retorna "Live URLs are not supported").
+`enabled` exige a chave do provider selecionado.
+
+**Fallback local**: se a sessão remota não iniciar, a UI oferece o conector local por extensão
+de navegador (`browser-extension/` + `public/referral-copilot-linkedin-connector.zip`), que lê a
+página de conexões no próprio browser do usuário e envia via `mode: "browser-sync"`.
+
 ## Variáveis de ambiente
 
 `BROWSERLESS_ENDPOINT`, `BROWSERLESS_API_TOKEN`, `LINKEDIN_MAX_CONCURRENT_SESSIONS` (máx 2),

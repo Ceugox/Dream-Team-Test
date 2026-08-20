@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useLinkedInBrowserSync } from "./useLinkedInBrowserSync";
 
 export type PublicLinkedInSessionDto = {
   id: string;
@@ -83,14 +84,17 @@ type ConnectorProps = {
   connected: boolean;
   contactCount: number;
   appearance: "card" | "cta";
+  /** Endpoint do fluxo local por extensão, usado como fallback quando a sessão remota não inicia. */
+  fallbackEndpoint: string;
   onFinished?: () => void;
 };
 
-export function LinkedInRemoteConnector({ connected, contactCount, appearance, onFinished }: ConnectorProps) {
+export function LinkedInRemoteConnector({ connected, contactCount, appearance, fallbackEndpoint, onFinished }: ConnectorProps) {
   const [phase, setPhase] = useState<"idle" | "creating" | "active">("idle");
   const [error, setError] = useState("");
   const [blockedUrl, setBlockedUrl] = useState<string | null>(null);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const fallback = useLinkedInBrowserSync({ endpoint: fallbackEndpoint, onComplete: () => onFinished?.() });
   const { session } = useLinkedInSessionStream(activeSessionId, null, () => {
     setPhase("idle");
     setActiveSessionId(null);
@@ -175,6 +179,20 @@ export function LinkedInRemoteConnector({ connected, contactCount, appearance, o
     <div role="alert" className="mt-3 rounded-xl border border-[#5a3d44] bg-[#1c0f13] p-3 text-xs leading-5 text-[#ffc9c9]">
       {error}
       <button type="button" onClick={connect} className="mt-2 flex min-h-11 items-center font-medium text-white underline underline-offset-4">Tentar de novo</button>
+      <button type="button" onClick={fallback.connect} disabled={fallback.syncing} className="mt-1 flex min-h-11 items-center font-medium text-[#bdc9ff] underline underline-offset-4 disabled:opacity-60">
+        {fallback.syncing ? "Sincronizando pelo conector local…" : "Usar o conector local (extensão) →"}
+      </button>
+    </div>
+  );
+
+  const fallbackBox = fallback.message && (
+    <div role="status" className="mt-3 rounded-xl border border-[#3d4668] bg-[#0d1220] p-3 text-xs leading-5 text-[#bdc9ff]">
+      {fallback.message}
+      {fallback.extensionMissing && (
+        <a href="/referral-copilot-linkedin-connector.zip" download className="mt-2 flex min-h-11 items-center font-medium text-white underline underline-offset-4">
+          Instalar conector para Chrome ou Edge
+        </a>
+      )}
     </div>
   );
 
@@ -205,6 +223,7 @@ export function LinkedInRemoteConnector({ connected, contactCount, appearance, o
         </button>
         {progress}
         {errorBox}
+        {fallbackBox}
         {trustLine}
       </div>
     );
@@ -224,6 +243,7 @@ export function LinkedInRemoteConnector({ connected, contactCount, appearance, o
       </button>
       {progress}
       {errorBox}
+      {fallbackBox}
       {trustLine}
     </div>
   );

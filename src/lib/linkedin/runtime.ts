@@ -1,4 +1,5 @@
 import { readLinkedInConfig } from "./config";
+import { createAnchorProvider } from "./providers/anchor";
 import { createBrowserlessProvider } from "./providers/browserless";
 import { createLinkedInSyncService, type LinkedInSyncService } from "./syncService";
 import type { OpenJobSignal } from "./prioritization";
@@ -27,12 +28,19 @@ export function getLinkedInSyncService(): LinkedInSyncService {
   if (cached) return cached;
   const config = readLinkedInConfig();
   if (!config.enabled) throw new Error("LINKEDIN_SYNC_DISABLED");
-  const provider = createBrowserlessProvider({
-    endpoint: config.endpoint,
-    token: config.token,
-    loginTimeoutMs: config.loginTimeoutMs,
-    reconnectTimeoutMs: config.reconnectTimeoutMs,
-  });
+  const provider = config.provider === "anchor"
+    ? createAnchorProvider({
+      apiUrl: config.anchorApiUrl,
+      connectUrl: config.anchorConnectUrl,
+      apiKey: config.anchorApiKey,
+      sessionTimeoutMs: config.sessionTimeoutMs,
+    })
+    : createBrowserlessProvider({
+      endpoint: config.endpoint,
+      token: config.token,
+      loginTimeoutMs: config.loginTimeoutMs,
+      reconnectTimeoutMs: config.reconnectTimeoutMs,
+    });
   cached = createLinkedInSyncService({
     config,
     provider,

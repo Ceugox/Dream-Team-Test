@@ -10,6 +10,7 @@ const pool = new pg.Pool({ connectionString, max: 2 });
 
 const sql = `
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
+SELECT pg_advisory_xact_lock(1357908642);
 
 CREATE TABLE IF NOT EXISTS organizations (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

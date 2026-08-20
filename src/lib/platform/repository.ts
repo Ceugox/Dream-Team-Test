@@ -244,7 +244,7 @@ export async function replaceGoogleAdminNetworkContacts(administratorId: string,
 
 export async function replaceLinkedInAdminNetworkContacts(administratorId: string, input: {
   accountId: string | null; accountEmail: string | null; scopes: string[];
-  contacts: Array<{name:string;headline:string|null;phone:null;profileContext:string}>;
+  contacts: Array<{name:string;headline:string|null;linkedinUrl?:string|null;phone:null;profileContext:string}>;
 }): Promise<number> {
   return transaction(async client => {
     await client.query(`DELETE FROM admin_network_contacts WHERE organization_id=$1 AND administrator_id=$2 AND source='linkedin'`, [orgId,administratorId]);
@@ -252,9 +252,9 @@ export async function replaceLinkedInAdminNetworkContacts(administratorId: strin
     for(const contact of input.contacts){
       const capital=inferNetworkCapital({headline:contact.headline,profileContext:contact.profileContext});
       await client.query(`INSERT INTO admin_network_contacts
-        (organization_id,administrator_id,name,headline,phone,source,profile_context,network_capital_score,network_capital_evidence,network_capital_confidence)
-        VALUES ($1,$2,$3,$4,NULL,'linkedin',$5,$6,$7::jsonb,$8)`,
-        [orgId,administratorId,contact.name,contact.headline,contact.profileContext,capital.score,JSON.stringify(capital.evidence),capital.confidence]);
+        (organization_id,administrator_id,name,headline,linkedin_url,phone,source,profile_context,network_capital_score,network_capital_evidence,network_capital_confidence)
+        VALUES ($1,$2,$3,$4,$5,NULL,'linkedin',$6,$7,$8::jsonb,$9)`,
+        [orgId,administratorId,contact.name,contact.headline,contact.linkedinUrl??null,contact.profileContext,capital.score,JSON.stringify(capital.evidence),capital.confidence]);
       inserted++;
     }
     await client.query(`INSERT INTO admin_source_connections

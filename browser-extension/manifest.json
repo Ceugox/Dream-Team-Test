@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Referral Copilot - Conector LinkedIn",
+  "version": "1.0.0",
+  "description": "Sincroniza, com consentimento, as conexões profissionais visíveis na conta LinkedIn do usuário.",
+  "permissions": ["tabs", "storage"],
+  "host_permissions": ["https://www.linkedin.com/*"],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    {
+      "matches": ["https://referral-copilot-mvp-production.up.railway.app/*", "http://localhost/*", "http://127.0.0.1/*"],
+      "js": ["app-bridge.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://www.linkedin.com/mynetwork/invite-connect/connections/*"],
+      "js": ["linkedin-scraper.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": { "default_title": "Referral Copilot" }
+}

@@ -21,7 +21,7 @@ O administrador nunca recebe uma listagem da rede privada dos membros.
 - Cadastro persistente de vagas.
 - Convites assinados, expiráveis e vinculáveis a e-mail.
 - Onboarding e sessão privada para cada membro.
-- Importação de conexões do LinkedIn sem armazenar credenciais.
+- Conector local do LinkedIn para administradores, sem armazenar credenciais.
 - Ranking de oportunidades por aderência profissional.
 - Consentimento explícito por indicação.
 - Pipeline administrativo com status de acompanhamento.
@@ -75,7 +75,9 @@ A integração inicial usa o click-to-chat oficial: o botão abre `wa.me` com o 
 
 ## LinkedIn
 
-O arquivo `public/linkedin-console-script.js` é executado pelo próprio membro na página de conexões do LinkedIn. Ele lê somente os elementos já visíveis na sessão autenticada e baixa um JSON local. A tela **Conexões** contém o passo a passo e o botão de download do extrator.
+Para administradores, o botão **Conectar LinkedIn** conversa com a extensão Manifest V3 em `browser-extension/`. Ela abre a página de conexões no Chrome ou Edge, usa a sessão que já está no navegador e devolve à plataforma somente nome, headline e URL profissional. O pacote para distribuição interna é `public/referral-copilot-linkedin-connector.zip`.
+
+Para membros convidados, o arquivo `public/linkedin-console-script.js` continua disponível como alternativa de importação local. Em ambos os fluxos a senha e os cookies permanecem no navegador.
 
 Essa abordagem não tenta contornar autenticação, CAPTCHA ou mecanismos de proteção e evita o armazenamento de senha/cookie do LinkedIn. Como depende da estrutura visual da página, o seletor pode exigir manutenção quando o LinkedIn alterar a interface.
 
@@ -136,4 +138,4 @@ O matching de conectores reconhece sinais profissionais explícitos de formaçã
 
 Esses sinais têm contribuição limitada, são exibidos com evidência e confiança e influenciam somente a hipótese de que alguém possa conhecer bons candidatos. Não elevam o fit de candidato, não substituem avaliação profissional e a ausência de pedigree reconhecido nunca reduz a pontuação.
 
-Google Contacts e Calendar estão apresentados como integrações futuras porque exigem credenciais OAuth do proprietário do produto. Nenhum dado fictício dessas fontes é exibido na experiência entregue.
+Google Contacts usa OAuth e permanece desativado até que o proprietário configure `GOOGLE_OAUTH_CLIENT_ID` e `GOOGLE_OAUTH_CLIENT_SECRET`. Nenhum dado fictício é exibido quando a integração não está configurada.

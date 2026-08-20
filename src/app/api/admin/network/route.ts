@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getAdminSession } from "@/lib/platform/auth";
 import { parseAdminNetworkFile } from "@/lib/platform/adminNetwork";
-import { addAdminNetworkContact, listAdminNetworkContacts, listJobs, refreshAdminRecommendations, replaceAdminNetworkContacts, updateAdminContactPhone } from "@/lib/platform/repository";
+import { addAdminNetworkContact, listAdminNetworkContacts, listJobs, refreshAdminRecommendations, replaceAdminNetworkContacts, replaceLinkedInAdminNetworkContacts, updateAdminContactPhone } from "@/lib/platform/repository";
 import { normalizePhone } from "@/lib/platform/whatsapp";
 import { inferNetworkCapital } from "@/lib/platform/networkCapital";
 
@@ -11,6 +11,10 @@ export async function GET(){const session=await getAdminSession();if(!session)re
 export async function POST(request:Request){
   const session=await getAdminSession();if(!session)return NextResponse.json({error:"unauthorized"},{status:401});
   const body=await request.json();
+  if(body.mode==="browser-sync"){
+    try{const parsed=parseAdminNetworkFile(body.contacts);const contacts=parsed.map(contact=>({name:contact.name,headline:contact.headline,linkedinUrl:contact.linkedinUrl,phone:null,profileContext:contact.profileContext??"Conexão visível no LinkedIn"}));const count=await replaceLinkedInAdminNetworkContacts(session.administratorId,{accountId:null,accountEmail:null,scopes:["browser_local_consent"],contacts});const jobs=await listJobs();await Promise.all(jobs.filter(job=>job.status==="open").map(job=>refreshAdminRecommendations(job.id)));return NextResponse.json({count});}
+    catch{return NextResponse.json({error:"invalid_browser_sync"},{status:400});}
+  }
   if(body.mode==="replace"){
     try{const contacts=parseAdminNetworkFile(body.contacts);await replaceAdminNetworkContacts(session.administratorId,contacts);const jobs=await listJobs();await Promise.all(jobs.filter(job=>job.status==="open").map(job=>refreshAdminRecommendations(job.id)));return NextResponse.json({count:contacts.length});}
     catch{return NextResponse.json({error:"invalid_network_file"},{status:400});}

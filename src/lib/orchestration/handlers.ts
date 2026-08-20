@@ -7,8 +7,10 @@ import { analyzeJob, enrichAdminNetworkContact, listJobs, refreshAdminRecommenda
 
 const JobPayload=z.object({jobId:z.uuid()});
 const ProfilePayload=z.object({administratorId:z.uuid(),contactId:z.uuid()});
-const LinkedInOwnerPayload=z.object({type:z.enum(["admin","member"]),id:z.uuid(),organizationId:z.uuid()});
-const LinkedInSessionPayload=z.object({sessionId:z.uuid(),owner:LinkedInOwnerPayload});
+// z.guid() em vez de z.uuid(): o organizationId padrão (…-000000000001) tem version nibble 0,
+// que o validador estrito de UUID RFC 4122 do Zod 4 rejeita.
+const LinkedInOwnerPayload=z.object({type:z.enum(["admin","member"]),id:z.guid(),organizationId:z.guid()});
+const LinkedInSessionPayload=z.object({sessionId:z.guid(),owner:LinkedInOwnerPayload});
 const LinkedInProfilePayload=LinkedInSessionPayload.extend({profileUrl:z.string().url()});
 
 const CONTINUABLE_STATUSES:LinkedInSessionStatus[]=["enriching","results_available","completed"];

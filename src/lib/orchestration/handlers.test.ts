@@ -10,7 +10,8 @@ vi.mock("./orchestrator",()=>({cancelLinkedInWorkflow:vi.fn(),enqueueLinkedInPro
 vi.mock("../linkedin/runtime",()=>({getLinkedInSyncService:vi.fn()}));
 
 const base:OrchestrationTask={id:"task",workflowId:"workflow",taskType:"job_analysis",payload:{jobId:"11111111-1111-4111-8111-111111111111"},tokenBudget:1200,timeoutSeconds:1,attempts:1,maxAttempts:3};
-const owner={type:"admin" as const,id:"22222222-2222-4222-8222-222222222222",organizationId:"33333333-3333-4333-8333-333333333333"};
+// organizationId real do sistema: UUID fora do RFC 4122 estrito (version nibble 0)
+const owner={type:"admin" as const,id:"22222222-2222-4222-8222-222222222222",organizationId:"00000000-0000-0000-0000-000000000001"};
 const sessionId="44444444-4444-4444-8444-444444444444";
 
 function fakeService(overrides:Partial<Record<"runInventoryStage"|"runProfileStage"|"finalizeStage"|"releaseStuckSession",unknown>>={}){

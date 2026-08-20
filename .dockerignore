@@ -1,0 +1,15 @@
+.git
+.github
+.next
+.chrome-linkedin-test
+node_modules
+coverage
+output
+tmp
+.env
+.env.*
+!.env.example
+!.env.docker.example
+npm-debug.log*
+*.tsbuildinfo
+public/referral-copilot-linkedin-connector.zip

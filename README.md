@@ -64,6 +64,25 @@ APP_URL=http://localhost:3000
 
 Acesse `http://localhost:3000`. A raiz oferece os acessos de administrador e usuário convidado.
 
+## Ambiente Docker isolado
+
+O Docker Compose sobe três serviços independentes: `web`, `worker` e `postgres`. O banco usa um volume local e nunca aponta para o Railway.
+
+```bash
+cp .env.docker.example .env.docker
+docker compose up --build
+```
+
+Acesse `http://localhost:3100` e use a chave administrativa local definida em `.env.docker`. Hot reload permanece ativo; web e worker aguardam o healthcheck do PostgreSQL antes de iniciar.
+
+```bash
+docker compose ps
+docker compose logs -f web worker postgres
+docker compose down
+```
+
+`docker compose down` preserva os dados. Para apagar também o banco local, use `docker compose down -v` somente quando a perda desses dados for intencional.
+
 ## WhatsApp
 
 A integração inicial usa o click-to-chat oficial: o botão abre `wa.me` com o telefone e a mensagem já preenchidos. O administrador não copia texto, mas revisa e pressiona **Enviar** no WhatsApp Desktop ou Web.

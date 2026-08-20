@@ -1,13 +1,15 @@
 import type { PoolClient } from "pg";
 import { createInviteToken, hashInviteToken } from "./auth";
 import { DEFAULT_ORGANIZATION_ID, query, transaction } from "./db";
-import type { AdminNetworkContact, Administrator, Invitation, Job, JobStatus, Member, NetworkRecommendation, OutreachRequest, OutreachStatus, RecommendationKind, Referral, ReferralStatus } from "./types";
+import type { AdminNetworkContact, Administrator, Invitation, Job, JobIntelligence, JobStatus, Member, NetworkRecommendation, OutreachRequest, OutreachStatus, RecommendationKind, Referral, ReferralStatus } from "./types";
 import { buildWhatsAppUrl } from "./whatsapp";
 import { createPerson, type Person } from "@/lib/domain/person";
 import { parseHeadline } from "@/lib/enrichment/headline";
 import { parseJobDescription } from "@/lib/matching/jobParser";
 import { rankCandidates } from "@/lib/matching/scoreRegistry";
 import { buildAdminRecommendations } from "./adminMatching";
+import { inferJobIntelligence, inferMatchRanking } from "@/lib/inference/matching";
+import { isInferenceConfigured } from "@/lib/inference/openrouter";
 
 const orgId = DEFAULT_ORGANIZATION_ID;
 
@@ -29,6 +31,30 @@ export async function getJob(id: string): Promise<Job | null> {
     count(r.id)::int AS "referralCount" FROM jobs j LEFT JOIN referrals r ON r.job_id=j.id
     WHERE j.id=$1 AND j.organization_id=$2 GROUP BY j.id`, [id,orgId]);
   return rows[0] ?? null;
+}
+
+export type StoredJobIntelligence = { analysis: JobIntelligence; model: string; updatedAt: string };
+
+export async function getJobIntelligence(jobId: string): Promise<StoredJobIntelligence | null> {
+  const rows = await query<StoredJobIntelligence>(`SELECT analysis,model,updated_at::text AS "updatedAt"
+    FROM job_inferences WHERE job_id=$1 AND organization_id=$2`, [jobId,orgId]);
+  return rows[0] ?? null;
+}
+
+async function recordInferenceRun(jobId: string, purpose: "job_analysis" | "match_rerank", model: string, usage: { promptTokens:number; completionTokens:number }): Promise<void> {
+  await query(`INSERT INTO inference_runs (organization_id,job_id,purpose,model,prompt_tokens,completion_tokens)
+    VALUES ($1,$2,$3,$4,$5,$6)`, [orgId,jobId,purpose,model,usage.promptTokens,usage.completionTokens]);
+}
+
+async function getOrCreateJobIntelligence(job: Job): Promise<StoredJobIntelligence | null> {
+  const stored = await getJobIntelligence(job.id);
+  if (stored || !isInferenceConfigured()) return stored;
+  const inferred = await inferJobIntelligence(job);
+  const rows = await query<StoredJobIntelligence>(`INSERT INTO job_inferences (job_id,organization_id,model,analysis)
+    VALUES ($1,$2,$3,$4::jsonb) ON CONFLICT (job_id) DO UPDATE SET model=excluded.model,analysis=excluded.analysis,updated_at=now()
+    RETURNING analysis,model,updated_at::text AS "updatedAt"`, [job.id,orgId,inferred.model,JSON.stringify(inferred.data)]);
+  await recordInferenceRun(job.id,"job_analysis",inferred.model,inferred.usage);
+  return rows[0];
 }
 
 export async function updateJobStatus(id: string, status: JobStatus): Promise<void> {
@@ -195,26 +221,42 @@ export async function updateAdminContactPhone(administratorId: string, id: strin
   await query(`UPDATE admin_network_contacts SET phone=$1,updated_at=now() WHERE id=$2 AND administrator_id=$3 AND organization_id=$4`, [phone,id,administratorId,orgId]);
 }
 
-export async function replaceJobRecommendations(jobId: string, recommendations: Array<{ contactId:string; administratorId:string; kind:RecommendationKind; score:number; confidence:number; evidence:string[] }>): Promise<void> {
+export async function replaceJobRecommendations(jobId: string, recommendations: Array<{ contactId:string; administratorId:string; kind:RecommendationKind; score:number; confidence:number; evidence:string[]; aiInsight?:string|null; aiConfidence?:number|null; inferenceModel?:string|null }>): Promise<void> {
   await transaction(async client => {
     await client.query(`DELETE FROM network_recommendations WHERE job_id=$1 AND organization_id=$2`, [jobId,orgId]);
     for (const item of recommendations) await client.query(`INSERT INTO network_recommendations
-      (organization_id,job_id,contact_id,administrator_id,kind,score,confidence,evidence)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb)`, [orgId,jobId,item.contactId,item.administratorId,item.kind,item.score,item.confidence,JSON.stringify(item.evidence)]);
+      (organization_id,job_id,contact_id,administrator_id,kind,score,confidence,evidence,ai_insight,ai_confidence,inference_model)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11)`, [orgId,jobId,item.contactId,item.administratorId,item.kind,item.score,item.confidence,JSON.stringify(item.evidence),item.aiInsight??null,item.aiConfidence??null,item.inferenceModel??null]);
   });
 }
 
 export async function refreshAdminRecommendations(jobId: string): Promise<number> {
   const job=await getJob(jobId);if(!job||job.status!=="open")return 0;
   const contacts=await listAdminNetworkContacts();
-  const recommendations=buildAdminRecommendations(job,contacts);
+  let recommendations=buildAdminRecommendations(job,contacts);
+  if(isInferenceConfigured())try{
+    const intelligence=await getOrCreateJobIntelligence(job);
+    if(intelligence&&recommendations.length){
+      const contactsById=new Map(contacts.map(contact=>[contact.id,contact]));
+      const candidates=recommendations.slice(0,30).map(item=>({id:item.contactId,kind:item.kind,headline:contactsById.get(item.contactId)?.headline??null,baseScore:item.score,deterministicEvidence:item.evidence}));
+      const inferred=await inferMatchRanking(job,intelligence.analysis,candidates);
+      const inferredById=new Map(inferred.data.map(item=>[`${item.id}:${item.kind}`,item]));
+      recommendations=recommendations.map(item=>{
+        const ai=inferredById.get(`${item.contactId}:${item.kind}`);if(!ai)return item;
+        const missing=ai.missingInformation.length?` Informação faltante: ${ai.missingInformation.join("; ")}.`:"";
+        return {...item,score:item.score*.65+ai.score*.35,confidence:item.confidence*.6+ai.confidence*.4,evidence:Array.from(new Set([...item.evidence,...ai.evidence])).slice(0,5),aiInsight:`${ai.insight}${missing}`,aiConfidence:ai.confidence,inferenceModel:inferred.model};
+      }).sort((a,b)=>b.score-a.score);
+      await recordInferenceRun(job.id,"match_rerank",inferred.model,inferred.usage);
+    }
+  }catch{/* O ranking determinístico permanece disponível quando a inferência falha. */}
   await replaceJobRecommendations(jobId,recommendations);
   return recommendations.length;
 }
 
 export async function listJobRecommendations(jobId: string): Promise<NetworkRecommendation[]> {
   return query<NetworkRecommendation>(`SELECT nr.id,nr.job_id AS "jobId",nr.contact_id AS "contactId",nr.administrator_id AS "administratorId",
-    a.name AS "ownerName",c.name AS "contactName",c.headline,c.phone,nr.kind,nr.score,nr.evidence,nr.confidence
+    a.name AS "ownerName",c.name AS "contactName",c.headline,c.phone,nr.kind,nr.score,nr.evidence,nr.confidence,
+    nr.ai_insight AS "aiInsight",nr.ai_confidence AS "aiConfidence",nr.inference_model AS "inferenceModel"
     FROM network_recommendations nr JOIN admin_network_contacts c ON c.id=nr.contact_id JOIN administrators a ON a.id=nr.administrator_id
     WHERE nr.job_id=$1 AND nr.organization_id=$2 ORDER BY nr.kind,nr.score DESC`, [jobId,orgId]);
 }

@@ -5,7 +5,7 @@ import { parseHeadline } from "../enrichment/headline";
 import type { AdminNetworkContact, Job, RecommendationKind } from "./types";
 import { scoreConnectorFit } from "./adminNetwork";
 
-export type AdminRecommendationDraft = { contactId:string; administratorId:string; kind:RecommendationKind; score:number; confidence:number; evidence:string[] };
+export type AdminRecommendationDraft = { contactId:string; administratorId:string; kind:RecommendationKind; score:number; confidence:number; evidence:string[]; aiInsight?:string|null; aiConfidence?:number|null; inferenceModel?:string|null };
 
 export function buildAdminRecommendations(job: Job, contacts: AdminNetworkContact[]): AdminRecommendationDraft[] {
   const profile=parseJobDescription(`${job.title} - ${job.company} - ${job.location??"Remoto"}\n${job.description}`,job.title);

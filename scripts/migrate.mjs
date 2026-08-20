@@ -78,6 +78,30 @@ CREATE TABLE IF NOT EXISTS network_recommendations (
   UNIQUE (job_id,contact_id,kind)
 );
 
+ALTER TABLE network_recommendations ADD COLUMN IF NOT EXISTS ai_insight text;
+ALTER TABLE network_recommendations ADD COLUMN IF NOT EXISTS ai_confidence double precision;
+ALTER TABLE network_recommendations ADD COLUMN IF NOT EXISTS inference_model text;
+
+CREATE TABLE IF NOT EXISTS job_inferences (
+  job_id uuid PRIMARY KEY REFERENCES jobs(id) ON DELETE CASCADE,
+  organization_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  model text NOT NULL,
+  analysis jsonb NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS inference_runs (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  organization_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  job_id uuid REFERENCES jobs(id) ON DELETE CASCADE,
+  purpose text NOT NULL CHECK (purpose IN ('job_analysis','match_rerank')),
+  model text NOT NULL,
+  prompt_tokens integer NOT NULL DEFAULT 0,
+  completion_tokens integer NOT NULL DEFAULT 0,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS outreach_requests (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   organization_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
@@ -167,6 +191,7 @@ CREATE INDEX IF NOT EXISTS admin_contacts_org_owner_idx ON admin_network_contact
 CREATE UNIQUE INDEX IF NOT EXISTS admin_contacts_linkedin_unique_idx ON admin_network_contacts(administrator_id,linkedin_url) WHERE linkedin_url IS NOT NULL;
 CREATE INDEX IF NOT EXISTS recommendations_job_kind_idx ON network_recommendations(job_id,kind,score DESC);
 CREATE INDEX IF NOT EXISTS outreach_job_status_idx ON outreach_requests(job_id,status);
+CREATE INDEX IF NOT EXISTS inference_runs_job_idx ON inference_runs(job_id,created_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS referrals_unique_candidate_idx ON referrals(job_id, member_id, linkedin_url) WHERE linkedin_url IS NOT NULL;
 
 INSERT INTO organizations (id, name)

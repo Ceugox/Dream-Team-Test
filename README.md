@@ -115,6 +115,8 @@ npm audit --omit=dev
 
 ## Operação no Railway
 
-Configure `DATABASE_URL`, `APP_SECRET` e `ADMIN_ACCESS_KEY` no serviço. O comando `npm start` executa a migração idempotente e inicia o Next.js. O PostgreSQL pode ser conectado por referência interna do Railway.
+Configure `DATABASE_URL`, `APP_SECRET`, `ADMIN_ACCESS_KEY` e `OPENROUTER_API_KEY` no serviço. `OPENROUTER_MODEL` é opcional e usa `deepseek/deepseek-v4-flash-0731` por padrão. O comando `npm start` executa a migração idempotente e inicia o Next.js. O PostgreSQL pode ser conectado por referência interna do Railway.
+
+As inferências analisam a vaga e reranqueiam somente os melhores resultados do motor determinístico. Perfis são enviados com identificadores opacos e sem nome, telefone, e-mail ou URL. Se o OpenRouter estiver indisponível, o ranking determinístico continua funcionando.
 
 Google Contacts e Calendar estão apresentados como integrações futuras porque exigem credenciais OAuth do proprietário do produto. Nenhum dado fictício dessas fontes é exibido na experiência entregue.

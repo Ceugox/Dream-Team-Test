@@ -12,6 +12,11 @@ export type Job = {
   referralCount: number;
 };
 
+export type JobIntelligence = {
+  summary: string; coreSkills: string[]; adjacentRoles: string[]; industries: string[];
+  seniority: string; missingInformation: string[];
+};
+
 export type Invitation = {
   id: string;
   email: string | null;
@@ -54,7 +59,8 @@ export type RecommendationKind = "candidate_fit" | "connector_fit";
 export type NetworkRecommendation = {
   id: string; jobId: string; contactId: string; administratorId: string; ownerName: string;
   contactName: string; headline: string | null; phone: string | null; kind: RecommendationKind;
-  score: number; evidence: string[]; confidence: number;
+  score: number; evidence: string[]; confidence: number; aiInsight: string | null;
+  aiConfidence: number | null; inferenceModel: string | null;
 };
 export type OutreachStatus = "prepared" | "opened" | "manually_confirmed_sent" | "replied" | "referred" | "no_response" | "cancelled";
 export type OutreachRequest = {

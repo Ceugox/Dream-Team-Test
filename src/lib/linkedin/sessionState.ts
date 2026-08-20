@@ -1,5 +1,5 @@
 import type {
-  LinkedInSession,
+  LinkedInSessionPublicInput,
   LinkedInSessionStatus,
   PublicLinkedInSession,
 } from "./types";
@@ -23,7 +23,7 @@ export function canTransition(from: LinkedInSessionStatus, to: LinkedInSessionSt
   return from === to || transitions[from].includes(to);
 }
 
-export function toPublicSession(session: LinkedInSession): PublicLinkedInSession {
+export function toPublicSession(session: LinkedInSessionPublicInput): PublicLinkedInSession {
   return {
     id: session.id,
     status: session.status,

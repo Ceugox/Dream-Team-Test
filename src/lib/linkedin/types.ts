@@ -27,8 +27,22 @@ export interface LinkedInSession {
   expiresAt: Date;
   failureCode: string | null;
   failureMessageSafe: string | null;
-  owner?: LinkedInOwner;
+  owner: LinkedInOwner;
 }
+
+export type LinkedInSessionPublicInput = Pick<
+  LinkedInSession,
+  | "id"
+  | "status"
+  | "inventoryCount"
+  | "enrichedCount"
+  | "failedCount"
+  | "providerSessionReference"
+  | "createdAt"
+  | "expiresAt"
+  | "failureCode"
+  | "failureMessageSafe"
+>;
 
 export interface PublicLinkedInSession {
   id: string;

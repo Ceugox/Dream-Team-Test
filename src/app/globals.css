@@ -38,4 +38,6 @@ a { color: inherit; text-decoration: none; }
 .gradient-text { background: linear-gradient(90deg, #fff 10%, #b7c6ff 52%, #d3b8ff); color: transparent; background-clip: text; }
 .accent-button { background: linear-gradient(100deg, #5578f2, #8b56d9); box-shadow: 0 10px 32px rgba(82, 105, 221, .24); }
 .subtle-grid { background-image: linear-gradient(rgba(255,255,255,.025) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px); background-size: 36px 36px; }
+.access-card { transition: transform .25s ease, border-color .25s ease; }
+.access-card:hover { transform: translateY(-3px); }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; } }

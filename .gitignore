@@ -16,6 +16,8 @@
 /.worktrees/
 /AGENTS.md
 /CLAUDE.md
+/tmp/
+/output/
 
 # next.js
 /.next/

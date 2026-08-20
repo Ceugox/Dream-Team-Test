@@ -62,6 +62,21 @@ CREATE TABLE IF NOT EXISTS admin_network_contacts (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS admin_source_connections (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  organization_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  administrator_id uuid NOT NULL REFERENCES administrators(id) ON DELETE CASCADE,
+  provider text NOT NULL CHECK (provider IN ('google')),
+  external_account_id text,
+  account_email text,
+  status text NOT NULL DEFAULT 'connected' CHECK (status IN ('connected','error','revoked')),
+  contact_count integer NOT NULL DEFAULT 0,
+  scopes text[] NOT NULL DEFAULT '{}'::text[],
+  connected_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (administrator_id,provider)
+);
+
 ALTER TABLE admin_network_contacts ADD COLUMN IF NOT EXISTS profile_context text;
 ALTER TABLE admin_network_contacts ADD COLUMN IF NOT EXISTS network_capital_score double precision NOT NULL DEFAULT 0;
 ALTER TABLE admin_network_contacts ADD COLUMN IF NOT EXISTS network_capital_evidence jsonb NOT NULL DEFAULT '[]'::jsonb;
@@ -197,6 +212,7 @@ CREATE INDEX IF NOT EXISTS referrals_org_status_idx ON referrals(organization_id
 CREATE INDEX IF NOT EXISTS contacts_member_idx ON network_contacts(member_id);
 CREATE INDEX IF NOT EXISTS administrators_org_idx ON administrators(organization_id);
 CREATE INDEX IF NOT EXISTS admin_contacts_org_owner_idx ON admin_network_contacts(organization_id,administrator_id);
+CREATE INDEX IF NOT EXISTS admin_source_connections_owner_idx ON admin_source_connections(administrator_id,provider);
 CREATE UNIQUE INDEX IF NOT EXISTS admin_contacts_linkedin_unique_idx ON admin_network_contacts(administrator_id,linkedin_url) WHERE linkedin_url IS NOT NULL;
 CREATE INDEX IF NOT EXISTS recommendations_job_kind_idx ON network_recommendations(job_id,kind,score DESC);
 CREATE INDEX IF NOT EXISTS outreach_job_status_idx ON outreach_requests(job_id,status);

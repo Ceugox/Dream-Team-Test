@@ -51,6 +51,10 @@ export type Referral = {
 };
 
 export type Administrator = { id: string; name: string; email: string; createdAt: string };
+export type AdminSourceConnection = {
+  provider: "google"; accountEmail: string | null; status: "connected" | "error" | "revoked";
+  contactCount: number; connectedAt: string;
+};
 export type AdminNetworkContact = {
   id: string; administratorId: string; ownerName: string; name: string; headline: string | null;
   linkedinUrl: string | null; phone: string | null; source: string; createdAt: string; profileContext: string | null;

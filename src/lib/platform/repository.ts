@@ -1,8 +1,8 @@
 import type { PoolClient } from "pg";
 import { createInviteToken, hashInviteToken } from "./auth";
 import { DEFAULT_ORGANIZATION_ID, query, transaction } from "./db";
-import type { AdminNetworkContact, Administrator, Invitation, Job, JobIntelligence, JobStatus, Member, NetworkRecommendation, OutreachRequest, OutreachStatus, RecommendationKind, Referral, ReferralStatus } from "./types";
-import { buildWhatsAppUrl } from "./whatsapp";
+import type { AdminNetworkContact, AdminSourceConnection, Administrator, Invitation, Job, JobIntelligence, JobStatus, Member, NetworkRecommendation, OutreachRequest, OutreachStatus, RecommendationKind, Referral, ReferralStatus } from "./types";
+import { buildWhatsAppUrl, normalizePhone } from "./whatsapp";
 import { createPerson, type Person } from "@/lib/domain/person";
 import { parseHeadline } from "@/lib/enrichment/headline";
 import { parseJobDescription } from "@/lib/matching/jobParser";
@@ -208,6 +208,38 @@ export async function listAdminNetworkContacts(administratorId?: string): Promis
     FROM admin_network_contacts c JOIN administrators a ON a.id=c.administrator_id
     WHERE c.organization_id=$1 AND ($2::uuid IS NULL OR c.administrator_id=$2)
     ORDER BY c.created_at DESC`, [orgId,administratorId ?? null]);
+}
+
+export async function listAdminSourceConnections(administratorId: string): Promise<AdminSourceConnection[]> {
+  return query<AdminSourceConnection>(`SELECT provider,account_email AS "accountEmail",status,contact_count AS "contactCount",
+    connected_at::text AS "connectedAt" FROM admin_source_connections
+    WHERE organization_id=$1 AND administrator_id=$2 ORDER BY provider`, [orgId,administratorId]);
+}
+
+export async function replaceGoogleAdminNetworkContacts(administratorId: string, input: {
+  accountId: string | null; accountEmail: string | null; scopes: string[];
+  contacts: Array<{name:string;headline:string|null;phone:string|null;profileContext:string|null}>;
+}): Promise<number> {
+  return transaction(async client => {
+    await client.query(`DELETE FROM admin_network_contacts WHERE organization_id=$1 AND administrator_id=$2 AND source='google'`, [orgId,administratorId]);
+    let inserted=0;
+    for(const contact of input.contacts){
+      const phone=contact.phone ? normalizePhone(contact.phone) : null;
+      const capital=inferNetworkCapital({headline:contact.headline,profileContext:contact.profileContext});
+      await client.query(`INSERT INTO admin_network_contacts
+        (organization_id,administrator_id,name,headline,phone,source,profile_context,network_capital_score,network_capital_evidence,network_capital_confidence)
+        VALUES ($1,$2,$3,$4,$5,'google',$6,$7,$8::jsonb,$9)`,
+        [orgId,administratorId,contact.name,contact.headline,phone,contact.profileContext,capital.score,JSON.stringify(capital.evidence),capital.confidence]);
+      inserted++;
+    }
+    await client.query(`INSERT INTO admin_source_connections
+      (organization_id,administrator_id,provider,external_account_id,account_email,status,contact_count,scopes,connected_at,updated_at)
+      VALUES ($1,$2,'google',$3,$4,'connected',$5,$6,now(),now())
+      ON CONFLICT (administrator_id,provider) DO UPDATE SET external_account_id=excluded.external_account_id,
+      account_email=excluded.account_email,status='connected',contact_count=excluded.contact_count,scopes=excluded.scopes,
+      connected_at=now(),updated_at=now()`, [orgId,administratorId,input.accountId,input.accountEmail,inserted,input.scopes]);
+    return inserted;
+  });
 }
 
 export async function enrichAdminNetworkContacts(administratorId: string, limit = 4): Promise<{processed:number;enriched:number;unconfirmed:number;failed:number}> {

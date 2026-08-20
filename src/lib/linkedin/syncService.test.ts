@@ -128,11 +128,12 @@ function fakeRepository() {
   return { repository, sessions, snapshots, transitionLog, pendingUrls };
 }
 
-function fakeProvider() {
+function fakeProvider(initialUrl = "https://www.linkedin.com/feed/") {
   const destroyed: string[] = [];
+  let currentUrl = initialUrl;
   const page = {
-    url: () => "https://www.linkedin.com/feed/",
-    goto: vi.fn(async () => undefined),
+    url: () => currentUrl,
+    goto: vi.fn(async (target: string) => { currentUrl = target; }),
     evaluate: vi.fn(async () => ({})) as never,
   };
   const handle: RemoteBrowserHandle = {
@@ -154,12 +155,13 @@ interface HarnessOverrides {
   collectProfile?: Parameters<typeof createLinkedInSyncService>[0]["collectProfile"];
   readAuthentication?: Parameters<typeof createLinkedInSyncService>[0]["readAuthentication"];
   now?: () => Date;
+  initialPageUrl?: string;
 }
 
 function harness(overrides: HarnessOverrides = {}) {
   const events: string[] = [];
   const repo = fakeRepository();
-  const browser = fakeProvider();
+  const browser = fakeProvider(overrides.initialPageUrl);
   const entries = [
     inventoryEntry("https://www.linkedin.com/in/ada-example", "Payments partnerships"),
     inventoryEntry("https://www.linkedin.com/in/ben-example", "Engineer"),
@@ -229,6 +231,13 @@ describe("LinkedIn sync service", () => {
     expect(created.session.status).toBe("awaiting_login");
     expect(created.interactiveUrl).toBe("https://live.browserless.example/session");
     expect(JSON.stringify(created)).not.toContain("enc:v1:reference");
+  });
+
+  it("navigates a blank remote browser to the LinkedIn login screen before waiting", async () => {
+    const context = harness({ initialPageUrl: "about:blank" });
+    const { result } = await createAndRun(context);
+    expect(result?.status).toBe("completed");
+    expect(context.page.goto).toHaveBeenNthCalledWith(1, "https://www.linkedin.com/login", { waitUntil: "domcontentloaded" });
   });
 
   it("closes the interactive view once login is detected and saves inventory before any profile", async () => {

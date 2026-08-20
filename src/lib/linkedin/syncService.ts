@@ -221,6 +221,10 @@ export function createLinkedInSyncService(dependencies: SyncServiceDependencies)
     };
 
     try {
+      // O browser remoto nasce em about:blank; leva o usuário direto à tela de login.
+      if (!handle.page.url().includes("linkedin.com")) {
+        await handle.page.goto("https://www.linkedin.com/login", { waitUntil: "domcontentloaded" });
+      }
       const loginDeadline = Math.min(now().getTime() + config.loginTimeoutMs, session.expiresAt.getTime());
       while (!(await readAuthentication(handle.page))) {
         if (options.signal?.aborted) return { session: await finish("cancelled"), profileUrls: [] };

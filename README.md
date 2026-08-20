@@ -7,7 +7,7 @@ Plataforma privada de indicações profissionais. O administrador publica vagas 
 1. Cada administrador entra com identidade própria, conecta sua rede e publica as vagas prioritárias.
 2. O administrador cria convites individuais, válidos por sete dias.
 3. O colega aceita o convite e acessa uma área privada.
-4. O colega clica em **Entrar com LinkedIn**, autentica-se diretamente em uma nova aba e aguarda a sincronização automática.
+4. O colega clica em **Continuar com LinkedIn**, autentica-se em uma sessão privada isolada e acompanha o mapeamento automático.
 5. O motor cruza cargo, senioridade, competências, empresa e localização com as vagas ativas.
 6. Somente quando o colega confirma uma indicação, nome, perfil e contexto da relação ficam visíveis ao administrador.
 7. Para cada vaga aberta, a plataforma separa potenciais candidatos de pessoas que provavelmente podem indicar alguém.
@@ -21,7 +21,7 @@ O administrador nunca recebe uma listagem da rede privada dos membros.
 - Cadastro persistente de vagas.
 - Convites assinados, expiráveis e vinculáveis a e-mail.
 - Onboarding e sessão privada para cada membro.
-- Conector local do LinkedIn para administradores e membros, sem armazenar credenciais.
+- Sessão remota temporária do LinkedIn para administradores e membros, sem instalação e sem armazenar credenciais.
 - Ranking de oportunidades por aderência profissional.
 - Consentimento explícito por indicação.
 - Pipeline administrativo com status de acompanhamento.
@@ -95,11 +95,9 @@ A integração inicial usa o click-to-chat oficial: o botão abre `wa.me` com o 
 
 ## LinkedIn
 
-Para administradores e membros, o botão **Entrar com LinkedIn** conversa com a extensão Manifest V3 em `browser-extension/`. Ela abre uma nova aba no Chrome ou Edge, aguarda o login normal, navega para as conexões e devolve à plataforma somente nome, headline e URL profissional. Ao concluir, fecha a aba de sincronização e retorna ao app. O pacote para distribuição interna é `public/referral-copilot-linkedin-connector.zip`.
+Administradores e membros usam a mesma jornada sem instalação: o botão **Continuar com LinkedIn** abre uma sessão de navegador remota e temporária (Browserless), onde o login acontece normalmente em tela isolada. Um worker conecta à mesma sessão, coleta primeiro o inventário de conexões e depois enriquece os perfis priorizados pelas vagas abertas, persistindo cada resultado de forma incremental. A UI acompanha tudo por SSE (estado, contador `N de M`, resultados iniciais) e oferece **Encerrar agora** a qualquer momento.
 
-O arquivo `public/linkedin-console-script.js` permanece apenas como contingência manual. Em ambos os fluxos a senha e os cookies permanecem no navegador.
-
-Essa abordagem não tenta contornar autenticação, CAPTCHA ou mecanismos de proteção e evita o armazenamento de senha/cookie do LinkedIn. Como depende da estrutura visual da página, o seletor pode exigir manutenção quando o LinkedIn alterar a interface.
+Senha, cookies e HTML nunca passam pela aplicação nem são persistidos; apenas uma referência criptografada da sessão fica no banco e é apagada em qualquer estado terminal. CAPTCHA, checkpoint e rate limit pausam a coleta sem tentativa de contorno. A integração liga e desliga pela flag `LINKEDIN_REMOTE_SYNC_ENABLED` — operação detalhada em `docs/runbooks/linkedin-remote-sync.md`.
 
 ## Arquitetura
 

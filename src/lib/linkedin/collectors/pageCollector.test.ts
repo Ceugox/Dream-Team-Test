@@ -44,6 +44,26 @@ describe("LinkedIn page collector", () => {
     expect(delay).toHaveBeenCalledWith(5);
   });
 
+  it("accumulates new entries across scrolls and deduplicates repeats", async () => {
+    const second = { name: "Ben Example", headline: "Engineer", url: "https://www.linkedin.com/in/ben-example" };
+    const remote = fakePage({ "page-signal": [clear, clear, clear], "inventory-dom": [[entry], [entry, second]], scroll: [null] });
+    const result = await collectConnectionInventory(remote.page, { maxScrolls: 1, delay: async () => undefined });
+    expect(result.status).toBe("complete");
+    if (result.status === "complete") {
+      expect(result.entries.map((item) => item.profileUrl.value)).toEqual([
+        "https://www.linkedin.com/in/ada-example",
+        "https://www.linkedin.com/in/ben-example",
+      ]);
+    }
+  });
+
+  it("rejects an invalid profile URL without navigating or flagging a checkpoint", async () => {
+    const remote = fakePage({ "page-signal": [clear] });
+    await expect(collectProfessionalProfile(remote.page, "https://evil.example/in/ada-example"))
+      .resolves.toEqual({ status: "stopped", reason: "invalid_profile_url" });
+    expect(remote.navigationCount()).toBe(0);
+  });
+
   it.each(["checkpoint", "captcha", "rate_limit"] as const)("stops safely when LinkedIn presents %s", async (reason) => {
     const remote = fakePage({ "page-signal": [{ kind: "page-signal", stop: reason }] });
     await expect(collectConnectionInventory(remote.page)).resolves.toEqual({ status: "stopped", reason });

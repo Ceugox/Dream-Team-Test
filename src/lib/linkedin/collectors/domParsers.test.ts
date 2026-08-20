@@ -22,6 +22,20 @@ describe("LinkedIn DOM parsers", () => {
     expect(result[0].profileUrl.value).toBe("https://www.linkedin.com/in/ada-example");
   });
 
+  it("canonicalizes relative connection hrefs against the LinkedIn origin", () => {
+    expect(canonicalizeLinkedInProfileUrl("/in/ada-example")).toBe("https://www.linkedin.com/in/ada-example");
+    expect(canonicalizeLinkedInProfileUrl("/feed/")).toBeNull();
+    expect(canonicalizeLinkedInProfileUrl("https://evil.example/in/ada-example")).toBeNull();
+  });
+
+  it("keeps full field text when markup is nested inside the field element", () => {
+    const profile = parseProfessionalProfile(
+      '<main><h1>Nested Example</h1><p data-field="summary">Builds <strong>trusted</strong> partnerships.</p></main>',
+      { sourceUrl: "https://www.linkedin.com/in/nested-example", observedAt },
+    );
+    expect(profile.summary.value).toBe("Builds trusted partnerships.");
+  });
+
   it("parses approved professional evidence without inferring a tier or seniority", () => {
     const profile = parseProfessionalProfile(fixture("profile-complete.html"), {
       sourceUrl: "https://www.linkedin.com/in/alex-example/",

@@ -33,8 +33,8 @@ function attribute(markup: string, name: string): string | null {
 
 function tagText(markup: string, attributeName: string, attributeValue: string): string | null {
   const escaped = attributeValue.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = markup.match(new RegExp(`<[^>]*\\b${attributeName}=["']${escaped}["'][^>]*>([\\s\\S]*?)<\\/[^>]+>`, "i"));
-  return clean(match?.[1]);
+  const match = markup.match(new RegExp(`<(\\w+)[^>]*\\b${attributeName}=["']${escaped}["'][^>]*>([\\s\\S]*?)<\\/\\1>`, "i"));
+  return clean(match?.[2]);
 }
 
 function allTagText(markup: string, attributeName: string): string[] {
@@ -68,7 +68,7 @@ function partialDate(value: string | null): string | null {
 export function canonicalizeLinkedInProfileUrl(value: string | null | undefined): string | null {
   if (!value) return null;
   try {
-    const url = new URL(value);
+    const url = new URL(value, "https://www.linkedin.com");
     const hostname = url.hostname.toLowerCase().replace(/^www\./, "");
     if (url.protocol !== "https:" || hostname !== "linkedin.com" || !/^\/in\/[^/]+\/?$/i.test(url.pathname)) return null;
     return `https://www.linkedin.com${url.pathname.replace(/\/$/, "")}`;

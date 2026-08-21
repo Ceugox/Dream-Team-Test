@@ -1,3 +1,5 @@
+importScripts("origins.js");
+
 const CONNECTIONS_URL = "https://www.linkedin.com/mynetwork/invite-connect/connections/";
 
 // storage.session é inacessível a content scripts por padrão; sem isso o scraper
@@ -6,6 +8,12 @@ chrome.storage.session.setAccessLevel({ accessLevel: "TRUSTED_AND_UNTRUSTED_CONT
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === "rc:start-linkedin-sync" && sender.tab?.id) {
+    // Defesa em profundidade: só a origem do app pode armar a coleta, mesmo que um
+    // content script seja injetado em outro lugar.
+    if (!isTrustedAppOrigin(sender.origin)) {
+      sendResponse({ ok: false });
+      return true;
+    }
     startLinkedInSync(sender.tab.id)
       .then(() => sendResponse({ ok: true }))
       .catch(() => sendResponse({ ok: false }));

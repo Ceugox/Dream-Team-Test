@@ -25,8 +25,12 @@ export async function enqueueJobWorkflow(jobId:string,requestedBy?:string):Promi
     const budget=3600;
     const workflow=(await client.query<{id:string}>(`INSERT INTO orchestration_workflows (organization_id,kind,entity_type,entity_id,token_budget,estimated_cost_usd,requested_by)
       VALUES ($1,'job_activation','job',$2,$3,.03,$4) RETURNING id`,[DEFAULT_ORGANIZATION_ID,jobId,budget,requestedBy??null])).rows[0];
-    const analysis=await insertTask(client,{workflowId:workflow.id,taskType:"job_analysis",payload:{jobId},tokenBudget:1200,timeoutSeconds:35,priority:50});
-    await insertTask(client,{workflowId:workflow.id,taskType:"match_rerank",payload:{jobId},dependsOn:[analysis.id],tokenBudget:2400,timeoutSeconds:55,priority:70});
+    await insertTask(client,{workflowId:workflow.id,taskType:"job_analysis",payload:{jobId},tokenBudget:1200,timeoutSeconds:35,priority:50});
+    // Sem dependsOn de propósito: quando job_analysis falhava de vez (quota, timeout, 5xx do
+    // provedor), a match_rerank ficava pending para sempre e a vaga não tinha recomendação
+    // nenhuma — nem as determinísticas, que não precisam de LLM. A prioridade mantém a
+    // ordem preferida, e o rerank busca/cria a análise por conta própria se ainda não houver.
+    await insertTask(client,{workflowId:workflow.id,taskType:"match_rerank",payload:{jobId},tokenBudget:2400,timeoutSeconds:55,priority:70});
     return workflow.id;
   });
 }
@@ -102,13 +106,27 @@ export async function failTask(task:OrchestrationTask,error:unknown):Promise<voi
   const message=(error instanceof Error?error.message:String(error)).slice(0,1000);
   await transaction(async client=>{
     if(task.attempts<task.maxAttempts){const delay=Math.min(300,5*2**(task.attempts-1));await client.query(`UPDATE orchestration_tasks SET status='retry',error=$1,available_at=now()+make_interval(secs=>$2),lease_until=NULL,locked_by=NULL,updated_at=now() WHERE id=$3`,[message,delay,task.id]);}
-    else{await client.query(`UPDATE orchestration_tasks SET status='failed',error=$1,lease_until=NULL,locked_by=NULL,completed_at=now(),updated_at=now() WHERE id=$2`,[message,task.id]);await client.query(`UPDATE orchestration_workflows SET status='failed',error=$1,completed_at=now(),updated_at=now() WHERE id=$2`,[`${task.taskType}: ${message}`,task.workflowId]);}
+    else{
+      await client.query(`UPDATE orchestration_tasks SET status='failed',error=$1,lease_until=NULL,locked_by=NULL,completed_at=now(),updated_at=now() WHERE id=$2`,[message,task.id]);
+      // Não condenar o workflow aqui: claimTask ignora toda task de workflow failed, então
+      // marcar failed na primeira baixa matava os irmãos que ainda podiam rodar — era o que
+      // deixava a vaga sem nenhuma recomendação quando a análise por LLM falhava.
+      await settleWorkflow(client,task.workflowId,`${task.taskType}: ${message}`);
+    }
   });
 }
 
+// Só decide o destino do workflow quando não há mais nada executável nele.
+async function settleWorkflow(client:PoolClient,workflowId:string,error:string|null):Promise<void>{
+  const executable=await client.query<{count:number}>(`SELECT count(*)::int AS count FROM orchestration_tasks WHERE workflow_id=$1 AND status IN ('pending','retry','running')`,[workflowId]);
+  if(executable.rows[0].count>0)return;
+  const failed=await client.query<{count:number}>(`SELECT count(*)::int AS count FROM orchestration_tasks WHERE workflow_id=$1 AND status='failed'`,[workflowId]);
+  const broke=failed.rows[0].count>0;
+  await client.query(`UPDATE orchestration_workflows SET status=$1,error=coalesce($2,error),completed_at=now(),updated_at=now() WHERE id=$3`,[broke?"failed":"completed",broke?error:null,workflowId]);
+}
+
 async function finishWorkflow(client:PoolClient,workflowId:string):Promise<void>{
-  const remaining=await client.query<{count:number}>(`SELECT count(*)::int AS count FROM orchestration_tasks WHERE workflow_id=$1 AND status<>'completed'`,[workflowId]);
-  if(remaining.rows[0].count===0)await client.query(`UPDATE orchestration_workflows SET status='completed',completed_at=now(),updated_at=now() WHERE id=$1`,[workflowId]);
+  await settleWorkflow(client,workflowId,null);
 }
 
 export async function listWorkflows(limit=20):Promise<WorkflowListItem[]>{return query<WorkflowListItem>(`SELECT w.id,w.kind,w.entity_type AS "entityType",w.entity_id AS "entityId",w.status,w.token_budget AS "tokenBudget",w.estimated_cost_usd AS "estimatedCostUsd",

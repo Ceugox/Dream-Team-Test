@@ -436,6 +436,15 @@ export async function replaceJobRecommendations(jobId: string, recommendations: 
   });
 }
 
+// Ranking determinístico puro, sem LLM: garante que a vaga nunca nasce vazia. A fila
+// refina depois com o rerank, que faz upsert por (job_id,contact_id,kind) e não apaga nada.
+export async function seedJobRecommendations(jobId: string): Promise<number> {
+  const job=await getJob(jobId);if(!job||job.status!=="open")return 0;
+  const recommendations=buildAdminRecommendations(job,await listAdminNetworkContacts());
+  await replaceJobRecommendations(jobId,recommendations);
+  return recommendations.length;
+}
+
 export async function refreshAdminRecommendations(jobId: string, signal?: AbortSignal): Promise<number> {
   const job=await getJob(jobId);if(!job||job.status!=="open")return 0;
   // Escopo deliberado: vaga é da organização, então o ranking considera a rede de todos os

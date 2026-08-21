@@ -5,12 +5,15 @@ const databaseUrl = process.env.TEST_DATABASE_URL;
 
 describe.skipIf(!databaseUrl)("network insights workflow deduplication", () => {
   let orchestrator: typeof import("./orchestrator");
+  let repository: typeof import("../platform/repository");
   let db: typeof import("../platform/db");
   let administratorId: string;
+  const createdJobs: string[] = [];
+  const createdWorkflows: string[] = [];
 
   beforeAll(async () => {
     process.env.DATABASE_URL = databaseUrl;
-    const repository = await import("../platform/repository");
+    repository = await import("../platform/repository");
     orchestrator = await import("./orchestrator");
     db = await import("../platform/db");
 
@@ -21,8 +24,40 @@ describe.skipIf(!databaseUrl)("network insights workflow deduplication", () => {
 
   afterAll(async () => {
     if (!db) return;
+    // entity_id não é FK para jobs: apagar a vaga não leva o workflow, e a task sobrevivente
+    // seria claimada por qualquer worker (ou por outro teste) depois.
+    for (const workflowId of createdWorkflows) await db.query("DELETE FROM orchestration_workflows WHERE id=$1", [workflowId]);
+    for (const jobId of createdJobs) await db.query("DELETE FROM jobs WHERE id=$1", [jobId]);
     await db.query("DELETE FROM orchestration_workflows WHERE entity_id=$1", [administratorId]);
     await db.query("DELETE FROM administrators WHERE id=$1", [administratorId]);
+  });
+
+  it("keeps the deterministic rerank claimable after the LLM analysis dies for good", async () => {
+    const jobId = await repository.createJob({
+      title: "Engenheiro de Plataforma", company: "Fila", location: "São Paulo",
+      description: "Plataforma com Node e TypeScript, foco em confiabilidade.", status: "open",
+    });
+    createdJobs.push(jobId);
+
+    const workflowId = await orchestrator.enqueueJobWorkflow(jobId, administratorId);
+    createdWorkflows.push(workflowId);
+
+    // Pega a análise pela fila e a mata como produção mataria: tentativas esgotadas.
+    const analysis = await orchestrator.claimTask("worker-teste");
+    expect(analysis?.taskType).toBe("job_analysis");
+    await orchestrator.failTask({ ...analysis!, attempts: analysis!.maxAttempts }, new Error("OPENROUTER_429"));
+
+    // O workflow não pode ser condenado enquanto sobra irmão executável: claimTask
+    // ignora qualquer task de workflow failed, e era isso que zerava a vaga.
+    const workflow = await db.query<{ status: string }>("SELECT status FROM orchestration_workflows WHERE id=$1", [workflowId]);
+    expect(workflow[0].status).toBe("running");
+
+    const rerank = await orchestrator.claimTask("worker-teste");
+    expect(rerank?.taskType).toBe("match_rerank");
+
+    // E a vaga não depende da fila para ter gente: o seed determinístico resolve na criação.
+    expect(await repository.seedJobRecommendations(jobId)).toBeGreaterThan(0);
+    expect(await repository.listJobRecommendations(jobId)).not.toHaveLength(0);
   });
 
   it("does not leave an orphan workflow when the hourly task already exists", async () => {

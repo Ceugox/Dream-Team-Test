@@ -4,6 +4,7 @@ import type { InventoryEntry, ProfessionalProfile } from "../linkedin/collectors
 import type { LinkedInOwner } from "../linkedin/types";
 import { normalizePhone } from "./whatsapp";
 import { inferNetworkCapital } from "./networkCapital";
+import { inferArea } from "./areaClassifier";
 import { replaceAdminNetworkContacts, upsertNetworkContacts } from "./repository";
 
 const TextOrList = z.union([z.string().max(4000),z.array(z.string().max(500)).max(30)]);
@@ -107,6 +108,11 @@ export function scoreConnectorFit(contact: { headline:string|null; profileContex
   if (job.industry && text.includes(job.industry.toLowerCase())) { score += .16; evidence.push(`Experiência no setor ${job.industry}`); }
   const roleTerms = job.title.toLowerCase().split(/\s+/).filter(term=>term.length>3);
   if (roleTerms.some(term=>text.includes(term))) { score += .12; evidence.push("Proximidade com o núcleo da vaga"); }
+  const contactArea=inferArea({headline:contact.headline,profileContext:contact.profileContext??null});
+  if(contactArea.area){
+    const jobArea=inferArea({headline:job.title,profileContext:[job.description,job.requiredSkills.join(" "),job.preferredSkills.join(" ")].filter(Boolean).join(" · ")});
+    if(jobArea.area===contactArea.area){score+=.18;evidence.push(`Mesma área da vaga (${contactArea.label})`);}
+  }
   const capital=contact.networkCapitalScore??inferNetworkCapital({headline:contact.headline,profileContext:contact.profileContext??null}).score;
   if(capital>0){score+=Math.min(.32,capital*.32);evidence.push(...(contact.networkCapitalEvidence??inferNetworkCapital({headline:contact.headline,profileContext:contact.profileContext??null}).evidence));}
   return {score:Math.min(1,score),evidence};

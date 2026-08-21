@@ -10,10 +10,12 @@ export type AuthenticatedActor =
   | { role: "admin"; ownerId: string; organizationId: string }
   | { role: "member"; ownerId: string; organizationId: string };
 
+// Sem fallback: um segredo versionado no repositório permitiria forjar o cookie rc_admin
+// em qualquer instância que não fosse produção (demo, preview, docker local).
 function secret(): string {
-  const value = process.env.APP_SECRET;
-  if (!value && process.env.NODE_ENV === "production") throw new Error("APP_SECRET is required in production");
-  return value ?? "local-development-secret-change-me";
+  const value = process.env.APP_SECRET?.trim();
+  if (!value) throw new Error("APP_SECRET is required");
+  return value;
 }
 
 function encode(payload: object): string {
@@ -34,9 +36,10 @@ function decode<T extends { exp: number }>(value?: string): T | null {
 }
 
 export function verifyAdminKey(input: string): boolean {
-  const configured = process.env.ADMIN_ACCESS_KEY;
-  if (!configured && process.env.NODE_ENV === "production") return false;
-  const expected = Buffer.from(configured ?? "admin-wow");
+  const configured = process.env.ADMIN_ACCESS_KEY?.trim();
+  // Falha fechada: sem chave configurada, ninguém entra — nunca com uma chave padrão.
+  if (!configured) return false;
+  const expected = Buffer.from(configured);
   const received = Buffer.from(input);
   return expected.length === received.length && timingSafeEqual(expected, received);
 }

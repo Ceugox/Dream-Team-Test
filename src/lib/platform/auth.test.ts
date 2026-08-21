@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const cookieValues = new Map<string, string>();
 
@@ -25,6 +25,11 @@ import {
 const originalKey = process.env.ADMIN_ACCESS_KEY;
 const originalSecret = process.env.APP_SECRET;
 
+beforeEach(() => {
+  // APP_SECRET não tem mais fallback: assinar ou verificar sessão exige segredo configurado.
+  process.env.APP_SECRET = "test-secret";
+});
+
 afterEach(() => {
   process.env.ADMIN_ACCESS_KEY = originalKey;
   process.env.APP_SECRET = originalSecret;
@@ -37,6 +42,17 @@ describe("platform auth", () => {
     process.env.ADMIN_ACCESS_KEY = "a-secure-admin-key";
     expect(verifyAdminKey("a-secure-admin-key")).toBe(true);
     expect(verifyAdminKey("a-secure-admin")).toBe(false);
+  });
+
+  it("refuses access when no admin key is configured", () => {
+    delete process.env.ADMIN_ACCESS_KEY;
+    expect(verifyAdminKey("admin-wow")).toBe(false);
+    expect(verifyAdminKey("")).toBe(false);
+  });
+
+  it("requires APP_SECRET to sign a session", async () => {
+    delete process.env.APP_SECRET;
+    await expect(setAdminSession("admin-1", "org-1")).rejects.toThrow(/APP_SECRET/);
   });
 
   it("creates opaque invite tokens and stable hashes", () => {

@@ -66,6 +66,8 @@ ADMIN_ACCESS_KEY=troque-por-uma-chave-administrativa
 APP_URL=http://localhost:3000
 ```
 
+`APP_SECRET` e `ADMIN_ACCESS_KEY` são **obrigatórias em qualquer ambiente**: não existe valor padrão. Sem `APP_SECRET` a aplicação falha ao assinar a sessão; sem `ADMIN_ACCESS_KEY` o login do administrador recusa todo mundo. O login também tem teto de 8 tentativas por IP a cada 10 minutos.
+
 Acesse `http://localhost:3000`. A raiz oferece os acessos de administrador e usuário convidado.
 
 ## Ambiente Docker isolado
@@ -170,3 +172,7 @@ Esses sinais têm contribuição limitada, são exibidos com evidência e confia
 ### Google Contacts
 
 A importação do Google é **implementação futura**: o cartão aparece desabilitado e o endpoint responde `503` a menos que `GOOGLE_IMPORT_ENABLED=true`. Nenhum dado fictício é exibido quando a integração não está configurada.
+
+### Enriquecimento público (desligado por padrão)
+
+O enriquecimento por busca web é o **único** caminho do produto que envia dado pessoal identificável para fora — nome e URL de LinkedIn do contato vão ao provedor de LLM. Por isso ele responde `503` e nem chega a fazer requisição a menos que `ENRICHMENT_ENABLED=true`. Ligue apenas com base legal para tratar esses dados; todo o resto da inteligência (insights da rede, rerank de match) trabalha só com agregados e identificadores opacos.

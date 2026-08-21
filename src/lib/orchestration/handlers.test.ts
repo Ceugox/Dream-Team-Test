@@ -12,7 +12,14 @@ describe("orchestration task handlers",()=>{
   it("dispatches a job analysis with a bounded payload",async()=>{
     vi.mocked(repository.analyzeJob).mockResolvedValue({model:"gemini",promptTokens:10,completionTokens:5,cached:false});
     await expect(executeTask(base)).resolves.toMatchObject({taskType:"job_analysis",model:"gemini"});
-    expect(repository.analyzeJob).toHaveBeenCalledWith("11111111-1111-4111-8111-111111111111");
+    expect(repository.analyzeJob).toHaveBeenCalledWith("11111111-1111-4111-8111-111111111111",expect.any(AbortSignal));
+  });
+  it("aborts the signal it handed to the specialist when the task times out",async()=>{
+    let received:AbortSignal|undefined;
+    vi.mocked(repository.analyzeJob).mockImplementation((_jobId,signal)=>{received=signal;return new Promise(resolve=>setTimeout(()=>resolve({model:"late",promptTokens:0,completionTokens:0,cached:false}),50));});
+    await expect(executeTask({...base,timeoutSeconds:.005})).rejects.toThrow("TASK_TIMEOUT");
+    // Sem isto, a requisição à LLM continuaria viva depois do timeout.
+    expect(received?.aborted).toBe(true);
   });
   it("rejects malformed handoff contracts before executing a specialist",async()=>{
     await expect(executeTask({...base,payload:{jobId:"not-a-uuid"}})).rejects.toThrow();

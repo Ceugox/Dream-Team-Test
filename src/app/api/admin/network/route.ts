@@ -10,9 +10,18 @@ import { enqueueNetworkInsightsWorkflow } from "@/lib/orchestration/orchestrator
 
 export async function GET(){const session=await getAdminSession();if(!session)return NextResponse.json({error:"unauthorized"},{status:401});return NextResponse.json({contacts:await listAdminNetworkContacts(session.administratorId)});}
 
+// Corpo malformado ou não-objeto é 400, não 500 por TypeError no acesso a body.mode.
+async function readJsonObject(request:Request):Promise<Record<string,unknown>|null>{
+  try{
+    const body=await request.json();
+    return body&&typeof body==="object"&&!Array.isArray(body)?body as Record<string,unknown>:null;
+  }catch{return null;}
+}
+
 export async function POST(request:Request){
   const session=await getAdminSession();if(!session)return NextResponse.json({error:"unauthorized"},{status:401});
-  const body=await request.json();
+  const body=await readJsonObject(request);
+  if(!body)return NextResponse.json({error:"invalid_json"},{status:400});
   if(body.mode==="browser-sync"){
     // Upsert incremental: sincronizações se acumulam por linkedin_url e nunca
     // apagam contatos de uma coleta anterior maior (ON CONFLICT DO UPDATE).
@@ -32,13 +41,15 @@ export async function POST(request:Request){
 
 export async function PATCH(request:Request){
   const session=await getAdminSession();if(!session)return NextResponse.json({error:"unauthorized"},{status:401});
+  const payload=await readJsonObject(request);
+  if(!payload)return NextResponse.json({error:"invalid_json"},{status:400});
   const result=z.object({
     id:z.uuid(),
     phone:z.string().max(40).optional(),
     headline:z.string().trim().max(500).optional(),
     profileContext:z.string().trim().max(4000).optional(),
     areaOverride:z.enum(AREA_CODES).nullable().optional(),
-  }).safeParse(await request.json());
+  }).safeParse(payload);
   if(!result.success)return NextResponse.json({error:"invalid"},{status:400});
   const {id,...raw}=result.data;
   const fields:Parameters<typeof updateAdminNetworkContact>[2]={};

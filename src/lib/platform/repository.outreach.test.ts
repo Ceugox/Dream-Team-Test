@@ -70,6 +70,19 @@ describe.skipIf(!databaseUrl)("recommendation refresh preserves outreach history
     expect(survivors[0].message).toBe("Oi! Temos uma vaga que combina com você.");
   });
 
+  it("survives two concurrent refreshes of the same job", async () => {
+    // Com DELETE+INSERT, dois match_rerank simultâneos violavam UNIQUE (job_id,contact_id,kind)
+    // e derrubavam o workflow inteiro. Com upsert, os dois têm de passar.
+    const [first, second] = await Promise.all([
+      repository.refreshAdminRecommendations(jobId),
+      repository.refreshAdminRecommendations(jobId),
+    ]);
+
+    expect(first).toBeGreaterThan(0);
+    expect(second).toBeGreaterThan(0);
+    expect(await repository.listOutreachRequests(jobId)).toHaveLength(1);
+  });
+
   it("still drops recommendations that left the ranking without outreach", async () => {
     const before = await repository.listJobRecommendations(jobId);
     const withOutreach = (await repository.listOutreachRequests(jobId)).map(request => request.recommendationId);

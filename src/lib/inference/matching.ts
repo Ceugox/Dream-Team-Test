@@ -45,8 +45,9 @@ const matchJsonSchema = {
   required: ["matches"],
 };
 
-export async function inferJobIntelligence(job: Job): Promise<StructuredInference<JobIntelligence>> {
+export async function inferJobIntelligence(job: Job, signal?: AbortSignal): Promise<StructuredInference<JobIntelligence>> {
   const input={
+    signal,
     schemaName: "job_intelligence",
     schema: jobJsonSchema,
     validator: JobIntelligenceSchema,
@@ -63,10 +64,11 @@ export type InferenceMatchInput = {
 };
 export type InferenceMatch = z.infer<typeof MatchSchema>["matches"][number];
 
-export async function inferMatchRanking(job: Job, intelligence: JobIntelligence, matches: InferenceMatchInput[]): Promise<StructuredInference<InferenceMatch[]>> {
+export async function inferMatchRanking(job: Job, intelligence: JobIntelligence, matches: InferenceMatchInput[], signal?: AbortSignal): Promise<StructuredInference<InferenceMatch[]>> {
   const aliases = new Map(matches.map((match, index) => [`p${index + 1}`, match]));
   const reverse = new Map(Array.from(aliases, ([alias, match]) => [match.id + match.kind, alias]));
   const result = await inferStructured({
+    signal,
     schemaName: "match_ranking",
     schema: matchJsonSchema,
     validator: MatchSchema.transform(value => value.matches),

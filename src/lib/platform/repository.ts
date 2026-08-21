@@ -50,11 +50,11 @@ async function recordInferenceRun(jobId: string, purpose: "job_analysis" | "matc
     VALUES ($1,$2,$3,$4,$5,$6)`, [orgId,jobId,purpose,model,usage.promptTokens,usage.completionTokens]);
 }
 
-async function getOrCreateJobIntelligence(job: Job): Promise<(StoredJobIntelligence & { usage:{promptTokens:number;completionTokens:number} }) | null> {
+async function getOrCreateJobIntelligence(job: Job, signal?: AbortSignal): Promise<(StoredJobIntelligence & { usage:{promptTokens:number;completionTokens:number} }) | null> {
   const stored = await getJobIntelligence(job.id);
   if (stored) return {...stored,usage:{promptTokens:0,completionTokens:0}};
   if (!isInferenceConfigured()&&!process.env.GEMINI_API_KEY?.trim()) return null;
-  const inferred = await inferJobIntelligence(job);
+  const inferred = await inferJobIntelligence(job,signal);
   const rows = await query<StoredJobIntelligence>(`INSERT INTO job_inferences (job_id,organization_id,model,analysis)
     VALUES ($1,$2,$3,$4::jsonb) ON CONFLICT (job_id) DO UPDATE SET model=excluded.model,analysis=excluded.analysis,updated_at=now()
     RETURNING analysis,model,updated_at::text AS "updatedAt"`, [job.id,orgId,inferred.model,JSON.stringify(inferred.data)]);
@@ -62,10 +62,10 @@ async function getOrCreateJobIntelligence(job: Job): Promise<(StoredJobIntellige
   return {...rows[0],usage:inferred.usage};
 }
 
-export async function analyzeJob(jobId:string):Promise<{model:string;promptTokens:number;completionTokens:number;cached:boolean}>{
+export async function analyzeJob(jobId:string,signal?:AbortSignal):Promise<{model:string;promptTokens:number;completionTokens:number;cached:boolean}>{
   const existing=await getJobIntelligence(jobId);if(existing)return {model:existing.model,promptTokens:0,completionTokens:0,cached:true};
   const job=await getJob(jobId);if(!job)throw new Error("JOB_NOT_FOUND");
-  const intelligence=await getOrCreateJobIntelligence(job);if(!intelligence)throw new Error("INFERENCE_NOT_CONFIGURED");
+  const intelligence=await getOrCreateJobIntelligence(job,signal);if(!intelligence)throw new Error("INFERENCE_NOT_CONFIGURED");
   return {model:intelligence.model,promptTokens:intelligence.usage.promptTokens,completionTokens:intelligence.usage.completionTokens,cached:false};
 }
 
@@ -74,7 +74,9 @@ export async function updateJobStatus(id: string, status: JobStatus): Promise<vo
 }
 
 export async function listInvitations(): Promise<Invitation[]> {
-  return query<Invitation>(`SELECT id,email,status,expires_at::text AS "expiresAt",created_at::text AS "createdAt"
+  // "expired" sai do banco: calcular na renderização chamaria Date.now() durante o render.
+  return query<Invitation>(`SELECT id,email,status,expires_at::text AS "expiresAt",created_at::text AS "createdAt",
+    (expires_at<now()) AS expired
     FROM invitations WHERE organization_id=$1 ORDER BY created_at DESC LIMIT 50`, [orgId]);
 }
 
@@ -309,11 +311,11 @@ export async function enrichAdminNetworkContacts(administratorId: string, limit 
   return {processed:contacts.length,enriched,unconfirmed,failed};
 }
 
-export async function enrichAdminNetworkContact(administratorId:string,contactId:string):Promise<{status:"enriched"|"unconfirmed";model:string;promptTokens:number;completionTokens:number;sources:number}>{
+export async function enrichAdminNetworkContact(administratorId:string,contactId:string,signal?:AbortSignal):Promise<{status:"enriched"|"unconfirmed";model:string;promptTokens:number;completionTokens:number;sources:number}>{
   const rows=await query<Pick<AdminNetworkContact,"id"|"name"|"headline"|"linkedinUrl"|"profileContext">>(`SELECT id,name,headline,linkedin_url AS "linkedinUrl",profile_context AS "profileContext" FROM admin_network_contacts WHERE id=$1 AND administrator_id=$2 AND organization_id=$3`,[contactId,administratorId,orgId]);
   const contact=rows[0];if(!contact)throw new Error("CONTACT_NOT_FOUND");
   try{
-    const discovery=await discoverPublicProfile(contact);const sources=discovery.sources.slice(0,8).map(source=>({...source,excerpt:source.excerpt?.slice(0,700)??null}));
+    const discovery=await discoverPublicProfile(contact,signal);const sources=discovery.sources.slice(0,8).map(source=>({...source,excerpt:source.excerpt?.slice(0,700)??null}));
     if(!discovery.confirmed){await query(`UPDATE admin_network_contacts SET public_enrichment_status='unconfirmed',public_identity_confidence=$1,public_sources=$2::jsonb,public_enriched_at=now(),updated_at=now() WHERE id=$3 AND administrator_id=$4`,[discovery.identityConfidence,JSON.stringify(sources),contact.id,administratorId]);return {status:"unconfirmed",model:discovery.model,promptTokens:discovery.usage.promptTokens,completionTokens:discovery.usage.completionTokens,sources:sources.length};}
     const discoveredContext=[...discovery.education,...discovery.experience,...discovery.internationalExperience,discovery.summary].filter(Boolean).join(" · ");const profileContext=[contact.profileContext,discoveredContext&&`Descoberta pública: ${discoveredContext}`].filter(Boolean).join(" · ").slice(0,12000)||null;const headline=contact.headline||discovery.headline;const capital=inferNetworkCapital({headline,profileContext});
     await query(`UPDATE admin_network_contacts SET headline=$1,profile_context=$2,network_capital_score=$3,network_capital_evidence=$4::jsonb,network_capital_confidence=$5,public_enrichment_status='enriched',public_identity_confidence=$6,public_sources=$7::jsonb,public_enriched_at=now(),updated_at=now() WHERE id=$8 AND administrator_id=$9`,[headline,profileContext,capital.score,JSON.stringify(capital.evidence),Math.min(capital.confidence,discovery.identityConfidence),discovery.identityConfidence,JSON.stringify(sources),contact.id,administratorId]);
@@ -366,7 +368,7 @@ export async function updateAdminNetworkContact(administratorId: string, id: str
 
 // Insight agregado da rede: estatísticas determinísticas + narrativa opcional da LLM.
 // Roda no worker (background) após o sync. Barato: envia só agregados, nunca a rede inteira.
-export async function generateAdminNetworkInsights(administratorId: string): Promise<{ contactsCount:number; source:string; model:string|null; promptTokens:number; completionTokens:number }> {
+export async function generateAdminNetworkInsights(administratorId: string, signal?: AbortSignal): Promise<{ contactsCount:number; source:string; model:string|null; promptTokens:number; completionTokens:number }> {
   const contacts = await listAdminNetworkContacts(administratorId);
   const counts = new Map<string,number>();
   const areaOf = (c: AdminNetworkContact) => c.areaOverride ?? inferArea({ headline: c.headline, profileContext: c.profileContext }).area;
@@ -386,6 +388,7 @@ export async function generateAdminNetworkInsights(administratorId: string): Pro
   if (isInferenceConfigured() && contacts.length) {
     try {
       const result = await inferStructured({
+        signal,
         schemaName: "network_insights",
         schema: { type:"object", additionalProperties:false, required:["summary","highlights","gaps"], properties:{ summary:{ type:"string" }, highlights:{ type:"array", items:{ type:"string" } }, gaps:{ type:"array", items:{ type:"string" } } } },
         validator: z.object({ summary: z.string(), highlights: z.array(z.string()).max(6), gaps: z.array(z.string()).max(6) }),
@@ -433,16 +436,19 @@ export async function replaceJobRecommendations(jobId: string, recommendations: 
   });
 }
 
-export async function refreshAdminRecommendations(jobId: string): Promise<number> {
+export async function refreshAdminRecommendations(jobId: string, signal?: AbortSignal): Promise<number> {
   const job=await getJob(jobId);if(!job||job.status!=="open")return 0;
+  // Escopo deliberado: vaga é da organização, então o ranking considera a rede de todos os
+  // administradores dela (a UI chama isso de "rede coletiva"). O GET de /api/admin/network é
+  // que é por dono, porque lá o admin edita os contatos dele. Não unificar sem decidir o produto.
   const contacts=await listAdminNetworkContacts();
   let recommendations=buildAdminRecommendations(job,contacts);
   if(isInferenceConfigured())try{
-    const intelligence=await getOrCreateJobIntelligence(job);
+    const intelligence=await getOrCreateJobIntelligence(job,signal);
     if(intelligence&&recommendations.length){
       const contactsById=new Map(contacts.map(contact=>[contact.id,contact]));
       const candidates=recommendations.slice(0,30).map(item=>{const contact=contactsById.get(item.contactId);return {id:item.contactId,kind:item.kind,headline:contact?.headline??null,professionalContext:contact?.profileContext??null,networkCapitalEvidence:contact?.networkCapitalEvidence??[],baseScore:item.score,deterministicEvidence:item.evidence};});
-      const inferred=await inferMatchRanking(job,intelligence.analysis,candidates);
+      const inferred=await inferMatchRanking(job,intelligence.analysis,candidates,signal);
       const inferredById=new Map(inferred.data.map(item=>[`${item.id}:${item.kind}`,item]));
       recommendations=recommendations.map(item=>{
         const ai=inferredById.get(`${item.contactId}:${item.kind}`);if(!ai)return item;
@@ -487,7 +493,7 @@ export async function listOutreachRequests(jobId: string): Promise<OutreachReque
 export async function updateOutreach(id: string, adminId: string, input: { message?:string; status?:OutreachStatus }): Promise<void> {
   await transaction(async client => {
     const result = await client.query(`UPDATE outreach_requests SET message=coalesce($1,message),status=coalesce($2,status),updated_at=now()
-      WHERE id=$3 AND organization_id=$4 RETURNING id`, [input.message??null,input.status??null,id,orgId]);
+      WHERE id=$3 AND organization_id=$4 AND created_by=$5 RETURNING id`, [input.message??null,input.status??null,id,orgId,adminId]);
     if (result.rowCount && input.status) await client.query(`INSERT INTO outreach_events (outreach_id,actor_id,event) VALUES ($1,$2,$3)`, [id,adminId,input.status]);
   });
 }

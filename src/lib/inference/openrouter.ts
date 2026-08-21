@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { linkAbort } from "./abort";
 
 export const DEFAULT_OPENROUTER_MODEL = "deepseek/deepseek-v4-flash-0731";
 
@@ -30,17 +31,18 @@ function collectSources(message: z.infer<typeof ResponseSchema>["choices"][numbe
   })).values());
 }
 
-export async function researchPublicWeb(input:{system:string;payload:unknown;maxTokens?:number}):Promise<WebResearch>{
+export async function researchPublicWeb(input:{system:string;payload:unknown;maxTokens?:number;signal?:AbortSignal}):Promise<WebResearch>{
   const apiKey=process.env.OPENROUTER_API_KEY?.trim();
   if(!apiKey)throw new Error("OPENROUTER_NOT_CONFIGURED");
   const model=process.env.OPENROUTER_MODEL?.trim()||DEFAULT_OPENROUTER_MODEL;
   const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),35_000);
+  const unlink=linkAbort(controller,input.signal);
   try{
     const response=await fetch("https://openrouter.ai/api/v1/chat/completions",{method:"POST",headers:{Authorization:`Bearer ${apiKey}`,"Content-Type":"application/json","HTTP-Referer":process.env.RAILWAY_PUBLIC_DOMAIN?`https://${process.env.RAILWAY_PUBLIC_DOMAIN}`:"http://localhost:3000","X-OpenRouter-Title":"Referral Copilot"},body:JSON.stringify({model,messages:[{role:"system",content:input.system},{role:"user",content:JSON.stringify(input.payload)}],temperature:.1,max_tokens:input.maxTokens??1800,reasoning:{enabled:false},provider:{zdr:true,data_collection:"deny"},tools:[{type:"openrouter:web_search"}]}),signal:controller.signal});
     if(!response.ok)throw new Error(`OPENROUTER_${response.status}`);
     const envelope=ResponseSchema.parse(await response.json());const message=envelope.choices[0].message;
     return {content:message.content,model:envelope.model||model,sources:collectSources(message),usage:{promptTokens:envelope.usage?.prompt_tokens??0,completionTokens:envelope.usage?.completion_tokens??0}};
-  }finally{clearTimeout(timeout);}
+  }finally{clearTimeout(timeout);unlink();}
 }
 
 export async function inferStructured<T>(input: {
@@ -51,12 +53,14 @@ export async function inferStructured<T>(input: {
   payload: unknown;
   maxTokens?: number;
   webSearch?: boolean;
+  signal?: AbortSignal;
 }): Promise<StructuredInference<T>> {
   const apiKey = process.env.OPENROUTER_API_KEY?.trim();
   if (!apiKey) throw new Error("OPENROUTER_NOT_CONFIGURED");
   const model = process.env.OPENROUTER_MODEL?.trim() || DEFAULT_OPENROUTER_MODEL;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), input.webSearch ? 35_000 : 15_000);
+  const unlink = linkAbort(controller, input.signal);
   try {
     const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
@@ -97,5 +101,6 @@ export async function inferStructured<T>(input: {
     };
   } finally {
     clearTimeout(timeout);
+    unlink();
   }
 }

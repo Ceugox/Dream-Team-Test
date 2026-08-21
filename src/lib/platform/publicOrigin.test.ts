@@ -21,4 +21,14 @@ describe("public application origin", () => {
     const request = new Request("http://localhost:3000/api/admin/invitations");
     expect(resolvePublicOrigin(request, {})).toBe("http://localhost:3000");
   });
+
+  it("refuses to trust proxy headers in production", () => {
+    const request = new Request("http://localhost:8080/api/admin/invitations", { headers: { "x-forwarded-host": "atacante.example.com" } });
+    expect(() => resolvePublicOrigin(request, { NODE_ENV: "production" })).toThrow(/required in production/);
+  });
+
+  it("uses the configured origin in production instead of the forwarded host", () => {
+    const request = new Request("http://localhost:8080/api/admin/invitations", { headers: { "x-forwarded-host": "atacante.example.com" } });
+    expect(resolvePublicOrigin(request, { NODE_ENV: "production", RAILWAY_PUBLIC_DOMAIN: "app.up.railway.app" })).toBe("https://app.up.railway.app");
+  });
 });

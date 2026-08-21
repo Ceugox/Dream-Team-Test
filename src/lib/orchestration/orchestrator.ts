@@ -9,13 +9,15 @@ export type WorkflowListItem={id:string;kind:"job_activation"|"network_enrichmen
 
 const TaskResultSchema=z.object({model:z.string().optional(),promptTokens:z.number().int().nonnegative().optional(),completionTokens:z.number().int().nonnegative().optional()}).passthrough();
 
-async function insertTask(client:PoolClient,input:{workflowId:string;taskType:OrchestrationTaskType;payload:unknown;dependsOn?:string[];tokenBudget:number;timeoutSeconds?:number;priority?:number;idempotencyKey?:string}):Promise<string>{
+async function insertTask(client:PoolClient,input:{workflowId:string;taskType:OrchestrationTaskType;payload:unknown;dependsOn?:string[];tokenBudget:number;timeoutSeconds?:number;priority?:number;idempotencyKey?:string}):Promise<{id:string;created:boolean}>{
   const idempotencyKey=input.idempotencyKey??`${input.workflowId}:${input.taskType}:${crypto.randomUUID()}`;
   const rows=await client.query<{id:string}>(`INSERT INTO orchestration_tasks (workflow_id,task_type,payload,depends_on,idempotency_key,token_budget,timeout_seconds,priority)
     VALUES ($1,$2,$3::jsonb,$4::uuid[],$5,$6,$7,$8) ON CONFLICT (idempotency_key) DO NOTHING RETURNING id`,[input.workflowId,input.taskType,JSON.stringify(input.payload),input.dependsOn??[],idempotencyKey,input.tokenBudget,input.timeoutSeconds??60,input.priority??100]);
-  if(rows.rows[0])return rows.rows[0].id;
+  if(rows.rows[0])return {id:rows.rows[0].id,created:true};
+  // A task já existia (dedup por idempotencyKey) e pertence a outro workflow: quem chamou
+  // precisa saber, senão nasce um workflow sem task nenhuma, eternamente "pending".
   const existing=await client.query<{id:string}>(`SELECT id FROM orchestration_tasks WHERE idempotency_key=$1`,[idempotencyKey]);
-  return existing.rows[0].id;
+  return {id:existing.rows[0].id,created:false};
 }
 
 export async function enqueueJobWorkflow(jobId:string,requestedBy?:string):Promise<string>{
@@ -23,8 +25,8 @@ export async function enqueueJobWorkflow(jobId:string,requestedBy?:string):Promi
     const budget=3600;
     const workflow=(await client.query<{id:string}>(`INSERT INTO orchestration_workflows (organization_id,kind,entity_type,entity_id,token_budget,estimated_cost_usd,requested_by)
       VALUES ($1,'job_activation','job',$2,$3,.03,$4) RETURNING id`,[DEFAULT_ORGANIZATION_ID,jobId,budget,requestedBy??null])).rows[0];
-    const analysisId=await insertTask(client,{workflowId:workflow.id,taskType:"job_analysis",payload:{jobId},tokenBudget:1200,timeoutSeconds:35,priority:50});
-    await insertTask(client,{workflowId:workflow.id,taskType:"match_rerank",payload:{jobId},dependsOn:[analysisId],tokenBudget:2400,timeoutSeconds:55,priority:70});
+    const analysis=await insertTask(client,{workflowId:workflow.id,taskType:"job_analysis",payload:{jobId},tokenBudget:1200,timeoutSeconds:35,priority:50});
+    await insertTask(client,{workflowId:workflow.id,taskType:"match_rerank",payload:{jobId},dependsOn:[analysis.id],tokenBudget:2400,timeoutSeconds:55,priority:70});
     return workflow.id;
   });
 }
@@ -39,7 +41,7 @@ export async function enqueueNetworkEnrichmentWorkflow(administratorId:string,re
     const workflow=(await client.query<{id:string}>(`INSERT INTO orchestration_workflows (organization_id,kind,entity_type,entity_id,token_budget,estimated_cost_usd,requested_by)
       VALUES ($1,'network_enrichment','administrator_network',$2,$3,$4,$5) RETURNING id`,[DEFAULT_ORGANIZATION_ID,administratorId,tokenBudget,contacts.length*.06+jobs.length*.02,requestedBy])).rows[0];
     const enrichmentIds:string[]=[];
-    for(const contact of contacts)enrichmentIds.push(await insertTask(client,{workflowId:workflow.id,taskType:"profile_enrichment",payload:{administratorId,contactId:contact.id},tokenBudget:3600,timeoutSeconds:75,priority:60}));
+    for(const contact of contacts)enrichmentIds.push((await insertTask(client,{workflowId:workflow.id,taskType:"profile_enrichment",payload:{administratorId,contactId:contact.id},tokenBudget:3600,timeoutSeconds:75,priority:60})).id);
     for(const job of jobs)await insertTask(client,{workflowId:workflow.id,taskType:"match_rerank",payload:{jobId:job.id},dependsOn:enrichmentIds,tokenBudget:2400,timeoutSeconds:55,priority:80});
     return {workflowId:workflow.id,profiles:contacts.length,jobs:jobs.length};
   });
@@ -52,7 +54,13 @@ export async function enqueueNetworkInsightsWorkflow(administratorId:string,requ
     const workflow=(await client.query<{id:string}>(`INSERT INTO orchestration_workflows (organization_id,kind,entity_type,entity_id,token_budget,estimated_cost_usd,requested_by)
       VALUES ($1,'network_enrichment','network_insights',$2,$3,$4,$5) RETURNING id`,[DEFAULT_ORGANIZATION_ID,administratorId,4000,.02,requestedBy])).rows[0];
     // Dedup por hora: re-sincronizações seguidas não disparam a LLM repetidamente.
-    await insertTask(client,{workflowId:workflow.id,taskType:"network_insights",payload:{administratorId},tokenBudget:4000,timeoutSeconds:120,priority:70,idempotencyKey:`network_insights:${administratorId}:${new Date().toISOString().slice(0,13)}`});
+    const task=await insertTask(client,{workflowId:workflow.id,taskType:"network_insights",payload:{administratorId},tokenBudget:4000,timeoutSeconds:120,priority:70,idempotencyKey:`network_insights:${administratorId}:${new Date().toISOString().slice(0,13)}`});
+    if(!task.created){
+      // A task da hora já existe: este workflow ficaria sem nenhuma e travaria em "pending"
+      // para sempre na tela de Inteligência. Desfaz e devolve nulo.
+      await client.query(`DELETE FROM orchestration_workflows WHERE id=$1`,[workflow.id]);
+      return null;
+    }
     return workflow.id;
   });
 }

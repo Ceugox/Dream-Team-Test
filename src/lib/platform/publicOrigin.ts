@@ -16,6 +16,10 @@ export function resolvePublicOrigin(request: Request, env: Readonly<Record<strin
   const railway = validOrigin(env.RAILWAY_PUBLIC_DOMAIN);
   if (railway) return railway;
 
+  // Em produção o host informado pelo proxy não é confiável: um Host forjado viraria
+  // link de convite apontando para o domínio do atacante. Melhor falhar alto.
+  if (env.NODE_ENV === "production") throw new Error("APP_URL or RAILWAY_PUBLIC_DOMAIN is required in production");
+
   const forwardedHost = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
   const host = forwardedHost || request.headers.get("host")?.trim();
   const forwardedProtocol = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();

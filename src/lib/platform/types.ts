@@ -22,6 +22,7 @@ export type Invitation = {
   email: string | null;
   status: "pending" | "accepted" | "revoked";
   expiresAt: string;
+  expired: boolean;
   createdAt: string;
 };
 

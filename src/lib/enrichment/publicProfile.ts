@@ -20,17 +20,26 @@ export type PublicProfileDiscovery = z.infer<typeof PublicProfileSchema> & {
   usage: { promptTokens: number; completionTokens: number };
 };
 
+// Este é o único caminho que manda PII (nome, URL de LinkedIn) para fora. Fica desligado
+// por padrão; ligar é decisão consciente de quem opera, com base legal para tratar esses dados.
+export function isEnrichmentEnabled(): boolean {
+  return process.env.ENRICHMENT_ENABLED?.trim() === "true";
+}
+
 export async function discoverPublicProfile(input: {
   name: string;
   headline: string | null;
   linkedinUrl: string | null;
-}): Promise<PublicProfileDiscovery> {
+}, signal?: AbortSignal): Promise<PublicProfileDiscovery> {
+  if (!isEnrichmentEnabled()) throw new Error("ENRICHMENT_DISABLED");
   const research=await researchPublicWeb({
+    signal,
     system:`Você pesquisa perfis profissionais públicos e diferencia homônimos com extremo cuidado. Use apenas fontes abertas. Não procure endereço residencial, documentos, idade, saúde, religião, política, família ou outros dados sensíveis. Relate URLs e deixe explícita qualquer ambiguidade.`,
     payload:{person:input,task:"Localize formação, histórico profissional e experiência internacional verificáveis. Confirme identidade por nome e outro sinal independente."},
     maxTokens:1800,
   });
   const result = await inferStructured({
+    signal,
     schemaName: "public_professional_profile",
     validator: PublicProfileSchema,
     schema: {

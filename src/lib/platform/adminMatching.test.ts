@@ -43,6 +43,28 @@ describe("admin matching",()=>{
     expect(candidatos).toEqual(["pm"]);
   });
 
+  it("não repete a mesma pessoa vinda de redes de admins diferentes",()=>{
+    // A vaga ranqueia a rede coletiva: o mesmo perfil sincronizado por dois admins
+    // vira duas linhas de contato e aparecia duas vezes na tela da vaga.
+    const contacts:AdminNetworkContact[]=[
+      {...base,id:"do-marcell",administratorId:"marcell",name:"Bia Souza",headline:"Staff Backend Engineer | TypeScript AWS | fintech",linkedinUrl:"https://www.linkedin.com/in/bia-souza/",phone:null},
+      {...base,id:"do-lucas",administratorId:"lucas",name:"Bia Souza",headline:"Staff Backend Engineer | TypeScript AWS | fintech",linkedinUrl:"https://linkedin.com/in/bia-souza",phone:"5511988887777"},
+    ];
+    const candidatos=buildAdminRecommendations(job,contacts).filter(item=>item.kind==="candidate_fit");
+    expect(candidatos).toHaveLength(1);
+    // Empate de score: fica a cópia com telefone, que já está pronta para outreach.
+    expect(candidatos[0].contactId).toBe("do-lucas");
+  });
+
+  it("sem URL do LinkedIn, deduplica pelo nome normalizado",()=>{
+    const contacts:AdminNetworkContact[]=[
+      {...base,id:"a",administratorId:"marcell",name:"João Câmara",headline:"Staff Backend Engineer | TypeScript AWS | fintech",linkedinUrl:null},
+      {...base,id:"b",administratorId:"lucas",name:"joao camara",headline:"Staff Backend Engineer | TypeScript AWS | fintech",linkedinUrl:null},
+    ];
+    const candidatos=buildAdminRecommendations(job,contacts).filter(item=>item.kind==="candidate_fit");
+    expect(candidatos).toHaveLength(1);
+  });
+
   it("confiança acompanha a evidência disponível",()=>{
     const contacts:AdminNetworkContact[]=[{...base,id:"eng",name:"Bia",headline:"Staff Backend Engineer | TypeScript AWS | fintech"}];
     const candidato=buildAdminRecommendations(job,contacts).find(item=>item.kind==="candidate_fit");

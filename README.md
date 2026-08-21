@@ -189,3 +189,8 @@ A importação do Google é **implementação futura**: o cartão aparece desabi
 ### Enriquecimento público (desligado por padrão)
 
 O enriquecimento por busca web é o **único** caminho do produto que envia dado pessoal identificável para fora — nome e URL de LinkedIn do contato vão ao provedor de LLM. Por isso ele responde `503` e nem chega a fazer requisição a menos que `ENRICHMENT_ENABLED=true`. Ligue apenas com base legal para tratar esses dados; todo o resto da inteligência (insights da rede, rerank de match) trabalha só com agregados e identificadores opacos.
+
+Há dois modos, ambos em segundo plano pela fila:
+
+- **Varredura da rede** (`POST /api/admin/network/enrich` sem corpo, botão em Rede): até 8 perfis, escolhidos por quem nunca foi pesquisado ou passou de 30 dias.
+- **Topo de uma vaga** (`{ "jobId": "…", "limit": 10 }`, botão na tela da vaga): pesquisa só os melhores ranqueados daquela vaga, na ordem do score. Perfil já pesquisado nos últimos 7 dias é ignorado, para o mesmo clique não gastar tokens duas vezes.

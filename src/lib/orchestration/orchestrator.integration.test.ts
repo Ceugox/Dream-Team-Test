@@ -60,6 +60,22 @@ describe.skipIf(!databaseUrl)("network insights workflow deduplication", () => {
     expect(await repository.listJobRecommendations(jobId)).not.toHaveLength(0);
   });
 
+  it("enriquece os contatos indicados, não a varredura por antiguidade", async () => {
+    // O contato antigo é quem a varredura padrão escolheria; o alvo explícito tem de vencer.
+    await repository.addAdminNetworkContact(administratorId, { name: "Alvo do Topo", headline: "Engenheiro de Software Sênior | Node" });
+    const contacts = await repository.listAdminNetworkContacts(administratorId);
+    const target = contacts.find(contact => contact.name === "Alvo do Topo");
+    expect(target).toBeTruthy();
+
+    const result = await orchestrator.enqueueNetworkEnrichmentWorkflow(administratorId, administratorId, { contactIds: [target!.id], limit: 10 });
+    if (result.workflowId) createdWorkflows.push(result.workflowId);
+
+    expect(result.profiles).toBe(1);
+    const payloads = await db.query<{ payload: { contactId: string } }>(
+      "SELECT payload FROM orchestration_tasks WHERE workflow_id=$1 AND task_type='profile_enrichment'", [result.workflowId]);
+    expect(payloads.map(row => row.payload.contactId)).toEqual([target!.id]);
+  });
+
   it("does not leave an orphan workflow when the hourly task already exists", async () => {
     const first = await orchestrator.enqueueNetworkInsightsWorkflow(administratorId, administratorId);
     expect(first).toBeTruthy();

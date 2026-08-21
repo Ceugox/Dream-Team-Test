@@ -35,10 +35,18 @@ export async function enqueueJobWorkflow(jobId:string,requestedBy?:string):Promi
   });
 }
 
-export async function enqueueNetworkEnrichmentWorkflow(administratorId:string,requestedBy:string,limit=8):Promise<{workflowId:string|null;profiles:number;jobs:number}>{
+export async function enqueueNetworkEnrichmentWorkflow(administratorId:string,requestedBy:string,options:{limit?:number;contactIds?:string[]}={}):Promise<{workflowId:string|null;profiles:number;jobs:number}>{
   return transaction(async client=>{
-    const contacts=(await client.query<{id:string}>(`SELECT id FROM admin_network_contacts WHERE organization_id=$1 AND administrator_id=$2
-      AND (public_enriched_at IS NULL OR public_enriched_at<now()-interval '30 days') ORDER BY (CASE WHEN profile_context IS NULL THEN 0 ELSE 1 END),created_at DESC LIMIT $3`,[DEFAULT_ORGANIZATION_ID,administratorId,Math.max(1,Math.min(limit,8))])).rows;
+    const limit=Math.max(1,Math.min(options.limit??8,10));
+    // Alvos explícitos (os melhores ranqueados de uma vaga) vencem a varredura por idade, mas
+    // ainda respeitam uma janela curta: cada perfil custa tokens e busca web no provedor.
+    const contacts=options.contactIds?.length
+      ? (await client.query<{id:string}>(`SELECT id FROM admin_network_contacts
+          WHERE organization_id=$1 AND administrator_id=$2 AND id=ANY($3::uuid[])
+          AND (public_enriched_at IS NULL OR public_enriched_at<now()-interval '7 days')
+          ORDER BY array_position($3::uuid[],id) LIMIT $4`,[DEFAULT_ORGANIZATION_ID,administratorId,options.contactIds,limit])).rows
+      : (await client.query<{id:string}>(`SELECT id FROM admin_network_contacts WHERE organization_id=$1 AND administrator_id=$2
+      AND (public_enriched_at IS NULL OR public_enriched_at<now()-interval '30 days') ORDER BY (CASE WHEN profile_context IS NULL THEN 0 ELSE 1 END),created_at DESC LIMIT $3`,[DEFAULT_ORGANIZATION_ID,administratorId,limit])).rows;
     if(!contacts.length)return {workflowId:null,profiles:0,jobs:0};
     const jobs=(await client.query<{id:string}>(`SELECT id FROM jobs WHERE organization_id=$1 AND status='open' ORDER BY created_at DESC`,[DEFAULT_ORGANIZATION_ID])).rows;
     const tokenBudget=contacts.length*3600+jobs.length*2400;

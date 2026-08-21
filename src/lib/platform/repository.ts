@@ -479,6 +479,14 @@ export async function refreshAdminRecommendations(jobId: string, signal?: AbortS
   return recommendations.length;
 }
 
+/** Contatos mais bem ranqueados de uma vaga, sem repetir quem aparece nas duas abas. */
+export async function listTopRankedContactIds(jobId: string, limit = 10): Promise<string[]> {
+  const rows = await query<{ contactId: string }>(`SELECT contact_id AS "contactId", max(score) AS best
+    FROM network_recommendations WHERE job_id=$1 AND organization_id=$2
+    GROUP BY contact_id ORDER BY best DESC LIMIT $3`, [jobId, orgId, Math.max(1, Math.min(limit, 10))]);
+  return rows.map(row => row.contactId);
+}
+
 export async function listJobRecommendations(jobId: string): Promise<NetworkRecommendation[]> {
   return query<NetworkRecommendation>(`SELECT nr.id,nr.job_id AS "jobId",nr.contact_id AS "contactId",nr.administrator_id AS "administratorId",
     a.name AS "ownerName",c.name AS "contactName",c.headline,c.phone,nr.kind,nr.score,nr.evidence,nr.confidence,

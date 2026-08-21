@@ -89,6 +89,7 @@ ALTER TABLE admin_network_contacts ADD COLUMN IF NOT EXISTS public_enrichment_st
 ALTER TABLE admin_network_contacts ADD COLUMN IF NOT EXISTS public_identity_confidence double precision NOT NULL DEFAULT 0;
 ALTER TABLE admin_network_contacts ADD COLUMN IF NOT EXISTS public_sources jsonb NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE admin_network_contacts ADD COLUMN IF NOT EXISTS public_enriched_at timestamptz;
+ALTER TABLE admin_network_contacts ADD COLUMN IF NOT EXISTS area_override text;
 
 CREATE TABLE IF NOT EXISTS network_recommendations (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

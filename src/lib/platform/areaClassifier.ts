@@ -4,6 +4,15 @@ export type AreaCode =
 
 export type AreaInference = { area: AreaCode | null; label: string | null; confidence: number; matched: string[]; ruleVersion: string };
 
+export const AREA_CODES = ["eng_software","dados_ia","produto","design","growth_mkt","vendas","financas","talent_rh","consultoria","juridico","operacoes","academia"] as const;
+
+// Rótulo legível para um código de área (usado no override manual e no badge).
+export function areaLabel(code: string | null): string | null {
+  if (!code) return null;
+  const rule = AREA_RULES.find(item => item.area === code);
+  return rule ? rule.label : null;
+}
+
 // Classificação heurística e explicável da área de atuação a partir da headline.
 // Determinística (stdlib), sem LLM — irmã de inferNetworkCapital. É um sinal, nunca
 // uma decisão automática de contratação.

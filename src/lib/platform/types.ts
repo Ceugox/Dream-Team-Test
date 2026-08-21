@@ -61,6 +61,7 @@ export type AdminNetworkContact = {
   networkCapitalScore: number; networkCapitalEvidence: string[]; networkCapitalConfidence: number;
   publicEnrichmentStatus: "pending" | "enriched" | "unconfirmed" | "failed";
   publicIdentityConfidence: number; publicSources: Array<{url:string;title:string;excerpt:string|null}>; publicEnrichedAt: string | null;
+  areaOverride: string | null;
 };
 export type RecommendationKind = "candidate_fit" | "connector_fit";
 export type NetworkRecommendation = {

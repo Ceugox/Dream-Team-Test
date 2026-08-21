@@ -46,6 +46,14 @@ describe("admin network", () => {
     expect(result.evidence.length).toBeGreaterThan(1);
   });
 
+  it("usa a área definida manualmente (override) no boost de conector",()=>{
+    const job=parseJobDescription("Head of Marketing - Acme\nRequired: growth", "Head of Marketing");
+    const withOverride=scoreConnectorFit({headline:"Software Engineer",areaOverride:"growth_mkt"},job);
+    const withoutOverride=scoreConnectorFit({headline:"Software Engineer"},job);
+    expect(withOverride.evidence).toEqual(expect.arrayContaining([expect.stringContaining("Mesma área da vaga")]));
+    expect(withOverride.score).toBeGreaterThan(withoutOverride.score);
+  });
+
   it("uses education and recognized institutions only as connector evidence",()=>{
     const job=parseJobDescription("Staff Backend Engineer - Acme\nRequired: typescript, aws", "Staff Backend Engineer");
     const result=scoreConnectorFit({headline:"Software Engineer",profileContext:"ITA · former McKinsey",networkCapitalScore:.75,networkCapitalEvidence:["Formação Tier A (ITA/IME)"]},job);

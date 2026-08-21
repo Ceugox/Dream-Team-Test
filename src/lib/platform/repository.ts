@@ -215,7 +215,7 @@ export async function listAdminNetworkContacts(administratorId?: string): Promis
     c.linkedin_url AS "linkedinUrl",c.phone,c.source,c.created_at::text AS "createdAt",c.profile_context AS "profileContext",
     c.network_capital_score AS "networkCapitalScore",c.network_capital_evidence AS "networkCapitalEvidence",c.network_capital_confidence AS "networkCapitalConfidence",
     c.public_enrichment_status AS "publicEnrichmentStatus",c.public_identity_confidence AS "publicIdentityConfidence",
-    c.public_sources AS "publicSources",c.public_enriched_at::text AS "publicEnrichedAt"
+    c.public_sources AS "publicSources",c.public_enriched_at::text AS "publicEnrichedAt",c.area_override AS "areaOverride"
     FROM admin_network_contacts c JOIN administrators a ON a.id=c.administrator_id
     WHERE c.organization_id=$1 AND ($2::uuid IS NULL OR c.administrator_id=$2)
     ORDER BY c.created_at DESC`, [orgId,administratorId ?? null]);
@@ -327,6 +327,21 @@ export async function addAdminNetworkContact(administratorId: string, contact: {
 
 export async function updateAdminContactPhone(administratorId: string, id: string, phone: string): Promise<void> {
   await query(`UPDATE admin_network_contacts SET phone=$1,updated_at=now() WHERE id=$2 AND administrator_id=$3 AND organization_id=$4`, [phone,id,administratorId,orgId]);
+}
+
+export async function updateAdminNetworkContact(administratorId: string, id: string, fields: { headline?:string|null; profileContext?:string|null; phone?:string|null; areaOverride?:string|null; networkCapitalScore?:number; networkCapitalEvidence?:string[]; networkCapitalConfidence?:number }): Promise<void> {
+  const sets:string[]=[]; const values:unknown[]=[];
+  const put=(assign:(placeholder:string)=>string, value:unknown)=>{values.push(value);sets.push(assign(`$${values.length}`));};
+  if("headline" in fields) put(p=>`headline=${p}`, fields.headline??null);
+  if("profileContext" in fields) put(p=>`profile_context=${p}`, fields.profileContext??null);
+  if("phone" in fields) put(p=>`phone=${p}`, fields.phone??null);
+  if("areaOverride" in fields) put(p=>`area_override=${p}`, fields.areaOverride??null);
+  if("networkCapitalScore" in fields) put(p=>`network_capital_score=${p}`, fields.networkCapitalScore??0);
+  if("networkCapitalEvidence" in fields) put(p=>`network_capital_evidence=${p}::jsonb`, JSON.stringify(fields.networkCapitalEvidence??[]));
+  if("networkCapitalConfidence" in fields) put(p=>`network_capital_confidence=${p}`, fields.networkCapitalConfidence??0);
+  if(!sets.length) return;
+  values.push(id,administratorId,orgId);
+  await query(`UPDATE admin_network_contacts SET ${sets.join(",")},updated_at=now() WHERE id=$${values.length-2} AND administrator_id=$${values.length-1} AND organization_id=$${values.length}`, values);
 }
 
 export async function replaceJobRecommendations(jobId: string, recommendations: Array<{ contactId:string; administratorId:string; kind:RecommendationKind; score:number; confidence:number; evidence:string[]; aiInsight?:string|null; aiConfidence?:number|null; inferenceModel?:string|null }>): Promise<void> {

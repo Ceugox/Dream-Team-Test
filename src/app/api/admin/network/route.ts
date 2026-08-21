@@ -66,6 +66,9 @@ export async function PATCH(request:Request){
     fields.networkCapitalScore=capital.score;fields.networkCapitalEvidence=capital.evidence;fields.networkCapitalConfidence=capital.confidence;
   }
   await updateAdminNetworkContact(session.administratorId,id,fields);
-  const jobs=await listJobs();await Promise.all(jobs.filter(job=>job.status==="open").map(job=>refreshAdminRecommendations(job.id)));
+  // O recálculo das vagas abertas roda em segundo plano: com rerank por LLM ele leva ~1s por
+  // vaga, e esperar todas fazia o "Salvar" do card demorar ~17s — parecia quebrado (21/ago).
+  const jobs=await listJobs();
+  void Promise.all(jobs.filter(job=>job.status==="open").map(job=>refreshAdminRecommendations(job.id).catch(()=>0)));
   return NextResponse.json({ok:true});
 }

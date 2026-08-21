@@ -34,14 +34,32 @@
 <div class="cover">
   <h1>Referral Copilot</h1>
   <div class="sub">Guia do usuário — como mapear sua rede e transformar conexões em indicações</div>
-  <span class="tag">Administrador</span><span class="tag">Membro convidado</span>
+  <span class="tag">Administrador</span><span class="tag">Membro convidado</span><span class="tag">Avaliação</span>
 </div>
 
 <p>O Referral Copilot ajuda a preencher vagas usando a rede profissional que a equipe já tem. Cada pessoa conecta a própria rede, a plataforma cruza os perfis com as vagas abertas e sugere <strong>quem pode ser o candidato</strong> e <strong>quem pode indicar alguém</strong>. Nada é compartilhado sem consentimento explícito.</p>
 
 <div class="note"><strong>A regra que rege tudo:</strong> o administrador nunca vê a lista de contatos privados de um membro. Ele só passa a ver um nome quando o próprio membro confirma uma indicação.</div>
 
-<h2>1. Conectar sua rede do LinkedIn</h2>
+<h2>1. Acesso rápido para avaliação</h2>
+
+<p>A plataforma está em produção em <strong>referral-copilot-mvp-production.up.railway.app</strong>. A chave de administrador e os links de convite individuais são entregues por canal privado, junto com a apresentação — não ficam neste repositório.</p>
+
+<div class="step"><span class="n">1</span><span class="t">Como administrador</span>
+<p>Na página inicial, clique em <strong>Entrar como administrador</strong> e informe a chave recebida. Você cai no painel com vagas, rede, equipe e inteligência.</p>
+</div>
+
+<div class="step"><span class="n">2</span><span class="t">Como usuário convidado</span>
+<p>Abra o seu link de convite (formato <code>/join/&lt;código&gt;</code>), informe nome e e-mail e entre na sua área privada. Cada link é de uso único e vale por sete dias.</p>
+</div>
+
+<div class="step"><span class="n">3</span><span class="t">Roteiro de 5 minutos</span>
+<p>Conecte sua rede pelo conector (seção 2) → crie uma vaga aberta → as sugestões aparecem <strong>na hora</strong> → acompanhe o refinamento por IA na aba <em>Inteligência</em> → confirme uma indicação e abra o WhatsApp com a mensagem pronta.</p>
+</div>
+
+<div class="warn"><strong>Recomendação de ambiente:</strong> use o <strong>Google Chrome</strong> e desative extensões de bloqueio (ad-block e similares) durante a extração da rede — bloqueadores podem esconder cartões da lista de conexões e reduzir a completude da coleta.</div>
+
+<h2>2. Conectar sua rede do LinkedIn</h2>
 
 <p>A conexão é feita por um <strong>conector de navegador</strong> (extensão para Chrome ou Edge). Ele abre o LinkedIn na sessão em que você já está logado e lê apenas as conexões visíveis. Sua senha nunca passa pela plataforma.</p>
 
@@ -80,45 +98,63 @@
   </tr>
 </table>
 
-<h2 class="pb">2. Entender a aba Minha rede</h2>
+<h2 class="pb">3. Entender a aba Minha rede</h2>
 
 <p>Cada contato aparece em um cartão com o cargo em destaque, o nome abaixo e etiquetas de contexto:</p>
 
 <table>
   <tr><th>Elemento</th><th>O que significa</th></tr>
-  <tr><td><strong>Etiqueta de área</strong></td><td>Área de atuação inferida do cargo e da stack (ex.: Dados &amp; IA/ML, Vendas &amp; GTM). Serve para você achar rapidamente quem é de cada campo.</td></tr>
+  <tr><td><strong>Etiqueta de área</strong></td><td>Área de atuação inferida do cargo e da stack (ex.: Dados &amp; IA/ML, Vendas &amp; GTM), entre 12 áreas. Serve para você achar rapidamente quem é de cada campo.</td></tr>
   <tr><td><strong>Capital de rede</strong></td><td>Sinais profissionais explícitos (formação, empresas anteriores, experiência internacional). Sugere quem tende a ter uma rede ampla — nunca é avaliação da pessoa.</td></tr>
   <tr><td><strong>WhatsApp ✓</strong></td><td>Existe telefone cadastrado, então dá para abrir a conversa direto da fila de contato.</td></tr>
   <tr><td><strong>% sinal</strong></td><td>Força combinada dos sinais encontrados no perfil.</td></tr>
 </table>
 
+<h3>Busca rápida</h3>
+<p>Acima da lista há um campo de busca: digite parte do <strong>nome</strong> da pessoa ou de uma <strong>área</strong> (ex.: “Produto”, “Dados &amp; IA”) para filtrar os cartões na hora. O mesmo campo existe na tela de cada vaga, para filtrar as recomendações. A busca ignora acentos e maiúsculas.</p>
+
 <h3>Insights da rede</h3>
-<p>Depois de cada sincronização, a plataforma gera em segundo plano um resumo da sua rede: composição por área, pontos fortes e <strong>lacunas</strong> (áreas em que você tem pouca gente). Use as lacunas para orientar onde vale investir em networking. O resumo aparece sozinho em alguns instantes — não é preciso clicar em nada.</p>
+<p>Depois de cada sincronização, a plataforma gera em segundo plano um resumo da sua rede: composição por área, pontos fortes e <strong>lacunas</strong> (áreas em que você tem pouca gente). Use as lacunas para orientar onde vale investir em networking. O resumo aparece sozinho em alguns instantes — não é preciso clicar em nada. A IA recebe <strong>apenas agregados</strong>, nunca nomes.</p>
 
 <h3>Corrigir ou completar um contato</h3>
 <p>Clique em <strong>Editar</strong> no cartão para ajustar:</p>
 <ul>
   <li><strong>Headline / contexto</strong> — cargo, stack, empresa e histórico relevante (formação, empresas anteriores).</li>
-  <li><strong>Área</strong> — escolha uma das áreas se a classificação automática não fizer sentido. Sua escolha manual sempre prevalece.</li>
+  <li><strong>Área</strong> — escolha uma das 12 áreas se a classificação automática não fizer sentido. Sua escolha manual sempre prevalece.</li>
   <li><strong>WhatsApp</strong> — inclua o número com código do país. Deixar em branco remove o número.</li>
 </ul>
 <p>Editar o contexto recalcula na hora os sinais e as recomendações das vagas abertas.</p>
 
-<h2>3. Publicar vagas e receber recomendações</h2>
+<h3>Enriquecimento por busca pública (opcional)</h3>
+<p>O administrador pode pedir que a plataforma pesquise publicamente um perfil para completar o contexto. Há dois botões:</p>
+<ul>
+  <li><strong>Enriquecer rede</strong> (na aba Rede) — varre até 8 perfis nunca pesquisados ou desatualizados.</li>
+  <li><strong>Enriquecer melhores</strong> (na tela da vaga) — pesquisa só os mais bem ranqueados daquela vaga.</li>
+</ul>
+<div class="note">Este é o único recurso que envia dado identificável (nome e URL pública) a um provedor externo — por isso é <strong>opcional, roda em segundo plano e é controlado por configuração</strong>. Todo o resto da inteligência trabalha com agregados e identificadores opacos.</div>
+
+<h2 class="pb">4. Publicar vagas e receber recomendações</h2>
 
 <div class="step"><span class="n">1</span><span class="t">Cadastre a vaga</span>
 <p>Em <em>Vagas</em>, informe cargo, empresa, localização e cole a descrição. Publique como <strong>aberta</strong> para buscar pessoas imediatamente ou salve como rascunho.</p>
 </div>
 
-<div class="step"><span class="n">2</span><span class="t">Leia as duas listas</span>
-<p>Para cada vaga, a plataforma separa <strong>potenciais candidatos</strong> (perfil aderente à vaga) de <strong>possíveis indicadores</strong> (gente que provavelmente conhece bons candidatos: recrutadores, lideranças, pessoas da mesma área). Cada linha mostra a evidência que sustenta a sugestão.</p>
+<div class="step"><span class="n">2</span><span class="t">As sugestões aparecem na hora</span>
+<p>Ao publicar, o ranking determinístico já é gravado <strong>no mesmo instante</strong> — a vaga abre populada. Em segundo plano, a IA analisa a descrição e refina a ordem dos melhores em alguns segundos a poucos minutos. Se a IA estiver indisponível, as sugestões determinísticas permanecem: a vaga nunca fica vazia por falha de inferência.</p>
 </div>
 
-<div class="step"><span class="n">3</span><span class="t">Fale com a pessoa pelo WhatsApp</span>
+<div class="step"><span class="n">3</span><span class="t">Leia as duas listas</span>
+<p>Para cada vaga, a plataforma separa <strong>potenciais candidatos</strong> (perfil aderente à vaga) de <strong>possíveis indicadores</strong> (gente que provavelmente conhece bons candidatos: recrutadores, lideranças, pessoas da mesma área). Cada linha mostra a evidência que sustenta a sugestão — nada de score opaco.</p>
+</div>
+
+<div class="step"><span class="n">4</span><span class="t">Fale com a pessoa pelo WhatsApp</span>
 <p>A plataforma monta a mensagem e abre a conversa no WhatsApp já preenchida. <strong>Você revisa e envia</strong> — não há disparo automático nem em massa. Depois registre o desfecho: <em>Envio confirmado</em>, <em>Respondeu</em>, <em>Indicou alguém</em> ou <em>Sem retorno</em>.</p>
 </div>
 
-<h2>4. Convidar a equipe</h2>
+<h3>Acompanhar a inteligência</h3>
+<p>Em <em>Admin → Inteligência</em>, cada vaga publicada e cada sincronização geram um fluxo de trabalho com progresso, tokens consumidos, orçamento estimado e falhas definitivas. É onde você confere que o refinamento por IA rodou — e quanto custou.</p>
+
+<h2>5. Convidar a equipe</h2>
 
 <p>Em <em>Equipe</em>, crie um convite (com ou sem e-mail vinculado) e envie o link pelo canal que preferir. Cada convite vale <strong>sete dias</strong>.</p>
 
@@ -129,9 +165,12 @@
   <tr><td><strong>Excluir</strong></td><td>Limpar a lista. Se o convite já havia sido aceito, o membro continua ativo.</td></tr>
 </table>
 
-<p>Os estados aparecem na lista: <strong>Pendente</strong>, <strong>Aceito</strong>, <strong>Revogado</strong> e <strong>Expirado</strong> (quando passou dos sete dias).</p>
+<p>Os estados aparecem na lista: <strong>Pendente</strong>, <strong>Aceito</strong>, <strong>Revogado</strong> e <strong>Expirado</strong> (quando passou dos sete dias). Os convites dos avaliadores foram criados assim — sem e-mail vinculado, para qualquer pessoa com o link ativar a própria conta.</p>
 
-<h2>5. Perguntas frequentes</h2>
+<h2>6. Perguntas frequentes</h2>
+
+<h3>Quanto tempo até as sugestões de uma vaga?</h3>
+<p>Imediato: o ranking determinístico é gravado na própria publicação da vaga. O refinamento por IA chega em segundo plano, de alguns segundos a poucos minutos, e só reordena — nunca apaga.</p>
 
 <h3>Preciso instalar algo para usar a plataforma?</h3>
 <p>Só para conectar o LinkedIn. Todo o resto — vagas, recomendações, convites, WhatsApp — funciona no navegador, sem instalação.</p>
@@ -151,7 +190,7 @@
 <h3>Posso conectar o Google Contacts?</h3>
 <p>Ainda não — está sinalizado como <strong>implementação futura</strong> e o cartão aparece desabilitado.</p>
 
-<footer>Referral Copilot · Guia do usuário · A conexão do LinkedIn usa a sessão do próprio usuário; nenhuma credencial é armazenada pela plataforma.</footer>
+<footer>Referral Copilot · Guia do usuário · Atualizado em 21/08/2026 · Solução concebida e desenvolvida por Marcell Parra · A conexão do LinkedIn usa a sessão do próprio usuário; nenhuma credencial é armazenada pela plataforma.</footer>
 
 </body>
 </html>

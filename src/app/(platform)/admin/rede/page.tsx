@@ -1,5 +1,6 @@
 import { AdminNetworkConnections } from "@/components/platform/AdminNetworkConnections";
-import { EditContact, ManualAdminContact, PublicDiscovery } from "@/components/platform/AdminNetworkForms";
+import { ManualAdminContact, PublicDiscovery } from "@/components/platform/AdminNetworkForms";
+import { AdminNetworkList, type NetworkListContact } from "@/components/platform/AdminNetworkList";
 import { PageHeader } from "@/components/platform/AppShell";
 import { getAdminSession } from "@/lib/platform/auth";
 import { areaLabel, inferArea } from "@/lib/platform/areaClassifier";
@@ -37,7 +38,14 @@ export default async function AdminNetworkPage() {
     </details>
     <section className="mt-6 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4 sm:p-6">
       <div className="flex items-center justify-between gap-3"><h2 className="font-medium">Sua rede{contacts.length > 0 && <span className="ml-2 text-xs font-normal text-[var(--muted)]">{contacts.length}</span>}</h2><span className="text-xs text-[var(--muted)]">Privada</span></div>
-      <div className="mt-4 grid max-h-[70vh] gap-3 overflow-y-auto pr-1 lg:grid-cols-2">{contacts.map(contact => <div key={contact.id} className="rounded-xl border border-[var(--line)] bg-[#0c0e13] p-4"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><p className="font-medium break-words">{contact.headline || "Contexto ainda incompleto"}</p><SourceBadge source={contact.source} /><AreaBadge headline={contact.headline} profileContext={contact.profileContext} areaOverride={contact.areaOverride} /></div><p className="mt-1 text-xs leading-5 text-[var(--muted)] break-words">{contact.name}</p>{contact.networkCapitalEvidence.length > 0 && <p className="mt-2 text-[10px] leading-4 text-[#b9a9ff]">Capital de rede: {contact.networkCapitalEvidence.join(" · ")}</p>}{contact.publicSources.length > 0 && <div className="mt-2 flex flex-wrap gap-2">{contact.publicSources.slice(0, 2).map(source => <a key={source.url} href={source.url} target="_blank" rel="noreferrer" className="text-[10px] text-[#8ea7ff] underline underline-offset-2">{source.title}</a>)}</div>}</div><div className="shrink-0 text-right">{contact.phone && <span className="block text-xs text-[var(--green)]">WhatsApp ✓</span>}{contact.publicEnrichmentStatus === "enriched" && <span className="mt-2 block text-[10px] text-[var(--green)]">Fonte confirmada</span>}{contact.publicEnrichmentStatus === "unconfirmed" && <span className="mt-2 block text-[10px] text-[var(--amber)]">Identidade ambígua</span>}{contact.networkCapitalScore > 0 && <span className="mt-2 block text-[10px] text-[#b9a9ff]">{Math.round(contact.networkCapitalScore * 100)}% sinal</span>}</div></div><EditContact id={contact.id} headline={contact.headline} profileContext={contact.profileContext} phone={contact.phone} areaOverride={contact.areaOverride} /></div>)}</div>
+      <AdminNetworkList contacts={contacts.map((contact): NetworkListContact => {
+        const label = contact.areaOverride ? areaLabel(contact.areaOverride) : inferArea({ headline: contact.headline, profileContext: contact.profileContext }).label;
+        return { id: contact.id, name: contact.name, headline: contact.headline, profileContext: contact.profileContext,
+          phone: contact.phone, source: contact.source, areaOverride: contact.areaOverride,
+          areaLabelText: label ?? null, areaIsOverride: Boolean(contact.areaOverride),
+          networkCapitalScore: contact.networkCapitalScore, networkCapitalEvidence: contact.networkCapitalEvidence,
+          publicEnrichmentStatus: contact.publicEnrichmentStatus, publicSources: contact.publicSources };
+      })} />
       {contacts.length === 0 && <p className="rounded-xl border border-dashed border-[var(--line)] p-8 text-center text-sm text-[var(--muted)]">Conecte o LinkedIn ou o Google para gerar as primeiras recomendações.</p>}
       <p className="mt-5 text-[10px] leading-4 text-[var(--muted)]">Sua senha e seus cookies nunca entram na plataforma. Os dados profissionais são usados para recomendações e não para decisões automáticas de contratação.</p>
     </section>
@@ -45,5 +53,3 @@ export default async function AdminNetworkPage() {
 }
 
 function Metric({ label, value, className = "" }: { label: string; value: number; className?: string }) { return <div className={`rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4 ${className}`}><p className="text-xs text-[var(--muted)]">{label}</p><p className="mt-2 text-2xl font-medium">{value}</p></div>; }
-function AreaBadge({ headline, profileContext, areaOverride }: { headline: string | null; profileContext: string | null; areaOverride: string | null }) { const label = areaOverride ? areaLabel(areaOverride) : inferArea({ headline, profileContext }).label; if (!label) return null; return <span className="rounded-full border border-[#3a3357] bg-[#1a1630] px-2 py-0.5 text-[9px] uppercase tracking-wide text-[#b9a9ff]" title={areaOverride ? "Área definida manualmente" : "Área inferida"}>{label}</span>; }
-function SourceBadge({ source }: { source: string }) { const label = source === "google" ? "Google" : source === "linkedin" ? "LinkedIn" : "Manual"; return <span className="rounded-full border border-[var(--line)] px-2 py-0.5 text-[9px] uppercase tracking-wide text-[var(--muted)]">{label}</span>; }

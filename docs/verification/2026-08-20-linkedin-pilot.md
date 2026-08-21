@@ -36,7 +36,35 @@ Data: 2026-08-20 · Commit verificado: `d43925b` (main) · Sem valores de chave 
 | Watchdog com `CRON_SECRET` correto | 200 `{"expired":0}` |
 | Logs web/worker | sem token, cookie, senha ou URL de sessão |
 
-## Pendências para a fase 2 (piloto com login real)
+## Fase 2 — piloto real (concluído)
+
+**Resultado**: coleta completa das ~372 conexões reais do admin, via **conector local por extensão**.
+
+**Decisões e achados durante o piloto:**
+- **Provider remoto abandonado para o piloto**: Browserless free não suporta LiveURL
+  ("Live URLs are not supported"). Avaliado Anchor Browser (free tier com live view) e
+  implementado como provider selecionável (`LINKEDIN_BROWSER_PROVIDER`), mas o fluxo remoto
+  tem fricção alta (login manual numa tela isolada, recuperação de sessão em deploy). Mantido
+  no código atrás da flag, **desligado** (`LINKEDIN_REMOTE_SYNC_ENABLED=false`).
+- **Caminho adotado**: conector local por extensão (browser-extension/), que lê a página de
+  conexões no próprio navegador do usuário. Bugs corrigidos até funcionar:
+  1. `storage.session` inacessível a content scripts → `setAccessLevel` no background.
+  2. Extensão em Downloads era v1.0.0 (sem `profileUrl`); usar a do repo.
+  3. `.dockerignore` excluía o zip do conector do build → removido.
+  4. **Virtualização real** da lista (~10 cards no DOM por vez): coletar a cada passo pequeno
+     (350px/500ms) com `a.href` normalizado para `/in/<slug>`, oscilando no fundo para paginar.
+     Validado no console (372/374) antes de portar. Extensão v1.2.2.
+- **Sync incremental**: rotas admin/member browser-sync trocadas de DELETE+insert para UPSERT
+  por linkedin_url — coletas parciais nunca reduzem a rede já mapeada.
+- **Hotfixes de produção no caminho**: `z.guid()` no lugar de `z.uuid()` (org id padrão tem
+  version nibble 0); navegar a sessão remota para /login (nascia em about:blank); lease curto
+  de 90s com heartbeat para recuperação de worker em ≤2 min.
+
+**Pendência menor (não bloqueia)**: a extensão captura nome + URL mas nem sempre a headline,
+gerando "contexto incompleto" em alguns contatos. Melhorar a extração de headline exige o
+markup atual do card de conexão (não capturado nesta sessão).
+
+## Pendências originais da fase 2 (superadas pelo caminho da extensão)
 
 1. Usuário define `BROWSERLESS_API_TOKEN` no serviço web (o worker herda por referência).
 2. Ligar `LINKEDIN_REMOTE_SYNC_ENABLED=true`.

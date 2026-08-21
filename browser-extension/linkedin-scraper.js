@@ -1,3 +1,6 @@
+/* global pickHeadline, CONNECTION_MARKERS */
+// pickHeadline e CONNECTION_MARKERS vêm de headline.js, carregado antes deste
+// script no mesmo content_scripts entry (isolado world compartilhado).
 const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 async function isSyncActive() {
@@ -25,19 +28,29 @@ function cleanLines(value) {
   return value.split("\n").map(line => line.replace(/\s+/g, " ").trim()).filter(Boolean);
 }
 
+function connectionCard(anchor) {
+  // Sobe até o ancestral cujo texto contém o marcador de rodapé do card.
+  let node = anchor;
+  for (let depth = 0; depth < 8 && node; depth++) {
+    const text = (node.innerText || "").toLowerCase();
+    if (CONNECTION_MARKERS.some(marker => text.includes(marker))) return node;
+    node = node.parentElement;
+  }
+  return anchor.closest("li") || anchor.parentElement?.parentElement || anchor;
+}
+
 function collectVisibleConnections() {
   const contacts = new Map();
   for (const anchor of document.querySelectorAll('a[href*="/in/"]')) {
     const linkedinUrl = normalizeProfileUrl(anchor.href || anchor.getAttribute("href") || "");
     if (!linkedinUrl || contacts.has(linkedinUrl)) continue;
-    const card = anchor.closest("li") || anchor.closest("[data-view-name]") || anchor.parentElement?.parentElement;
-    const lines = cleanLines(card?.textContent || anchor.textContent || "");
+    const card = connectionCard(anchor);
+    const lines = cleanLines(card.innerText || anchor.textContent || "");
     const imageAlt = anchor.querySelector("img")?.getAttribute("alt")?.trim();
-    const anchorText = cleanLines(anchor.textContent || "")[0];
-    const name = anchorText || imageAlt || lines.find(line => line.length > 2 && line.length < 120);
+    const name = (cleanLines(anchor.textContent || "")[0] || imageAlt || "").slice(0, 160);
     if (!name || /linkedin|perfil|profile/i.test(name)) continue;
-    const headline = lines.find(line => line !== name && line.length > 3 && line.length < 300 && !/conexão|connection|mensagem|message|remover|remove/i.test(line)) || "";
-    contacts.set(linkedinUrl, { name: name.slice(0, 160), headline: headline.slice(0, 500), profileUrl: linkedinUrl, linkedinUrl });
+    const headline = pickHeadline(lines, name);
+    contacts.set(linkedinUrl, { name, headline: headline || "", profileUrl: linkedinUrl, linkedinUrl });
   }
   return [...contacts.values()];
 }

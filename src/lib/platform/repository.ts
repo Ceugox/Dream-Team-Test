@@ -427,13 +427,21 @@ export async function replaceJobRecommendations(jobId: string, recommendations: 
   await transaction(async client => {
     // Upsert em vez de DELETE+INSERT: o id da recomendação precisa sobreviver ao refresh, senão
     // outreach_requests.recommendation_id (ON DELETE CASCADE) leva embora o histórico de contato.
-    for (const item of recommendations) await client.query(`INSERT INTO network_recommendations
+    // Em lote via unnest: linha a linha eram centenas de roundtrips por vaga — foi o que deixou
+    // o seed de demonstração lento a ponto de morrer no meio e abandonar vagas sem sugestão.
+    if (recommendations.length) await client.query(`INSERT INTO network_recommendations
       (organization_id,job_id,contact_id,administrator_id,kind,score,confidence,evidence,ai_insight,ai_confidence,inference_model)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11)
+      SELECT $1,$2,u.contact_id,u.administrator_id,u.kind,u.score,u.confidence,u.evidence,u.ai_insight,u.ai_confidence,u.inference_model
+      FROM unnest($3::uuid[],$4::uuid[],$5::text[],$6::double precision[],$7::double precision[],$8::jsonb[],$9::text[],$10::double precision[],$11::text[])
+        AS u(contact_id,administrator_id,kind,score,confidence,evidence,ai_insight,ai_confidence,inference_model)
       ON CONFLICT (job_id,contact_id,kind) DO UPDATE SET administrator_id=EXCLUDED.administrator_id,
         score=EXCLUDED.score,confidence=EXCLUDED.confidence,evidence=EXCLUDED.evidence,
         ai_insight=EXCLUDED.ai_insight,ai_confidence=EXCLUDED.ai_confidence,
-        inference_model=EXCLUDED.inference_model,updated_at=now()`, [orgId,jobId,item.contactId,item.administratorId,item.kind,item.score,item.confidence,JSON.stringify(item.evidence),item.aiInsight??null,item.aiConfidence??null,item.inferenceModel??null]);
+        inference_model=EXCLUDED.inference_model,updated_at=now()`, [orgId,jobId,
+      recommendations.map(item=>item.contactId),recommendations.map(item=>item.administratorId),
+      recommendations.map(item=>item.kind),recommendations.map(item=>item.score),recommendations.map(item=>item.confidence),
+      recommendations.map(item=>JSON.stringify(item.evidence)),recommendations.map(item=>item.aiInsight??null),
+      recommendations.map(item=>item.aiConfidence??null),recommendations.map(item=>item.inferenceModel??null)]);
     // Descarta quem saiu do ranking, mas nunca uma recomendação com outreach já preparado.
     await client.query(`DELETE FROM network_recommendations AS r
       WHERE r.job_id=$1 AND r.organization_id=$2

@@ -4,6 +4,24 @@ import { useRouter } from "next/navigation";
 
 const inputClass="w-full rounded-xl border border-[var(--line)] bg-[#0b0d12] px-4 py-3 text-sm text-white placeholder:text-[#616876]";
 
+export function InviteActions({ id, pending }: { id:string; pending:boolean }) {
+  const router=useRouter();
+  const [busy,setBusy]=useState(false);
+  const [link,setLink]=useState("");
+  const [copied,setCopied]=useState(false);
+  async function call(method:string,body?:unknown){setBusy(true);const res=await fetch(`/api/admin/invitations/${id}`,{method,headers:{"Content-Type":"application/json"},...(body?{body:JSON.stringify(body)}:{})});const data=await res.json().catch(()=>({}));setBusy(false);return {ok:res.ok,data} as {ok:boolean;data:{url?:string}};}
+  async function regenerate(){const {ok,data}=await call("PATCH",{action:"regenerate"});if(ok&&data.url)setLink(data.url);}
+  async function revoke(){const {ok}=await call("PATCH",{action:"revoke"});if(ok)router.refresh();}
+  async function remove(){if(!confirm("Excluir este convite? Se já foi aceito, o membro é mantido."))return;const {ok}=await call("DELETE");if(ok)router.refresh();}
+  async function copy(){await navigator.clipboard.writeText(link);setCopied(true);setTimeout(()=>setCopied(false),1800);}
+  return <div className="mt-2 flex flex-wrap items-center gap-3 text-[10px]">
+    {pending&&<button type="button" disabled={busy} onClick={regenerate} className="text-[#8ea7ff] underline underline-offset-2 disabled:opacity-50">Gerar novo link</button>}
+    {pending&&<button type="button" disabled={busy} onClick={revoke} className="text-[var(--amber)] underline underline-offset-2 disabled:opacity-50">Revogar</button>}
+    <button type="button" disabled={busy} onClick={remove} className="text-[var(--danger)] underline underline-offset-2 disabled:opacity-50">Excluir</button>
+    {link&&<button type="button" onClick={copy} className="rounded border border-[var(--line)] px-2 py-0.5 text-[#c9d3ff]">{copied?"Copiado!":"Copiar novo link"}</button>}
+  </div>;
+}
+
 export function CreateJobForm() {
   const router=useRouter(); const [loading,setLoading]=useState(false); const [error,setError]=useState("");
   async function submit(event:React.FormEvent<HTMLFormElement>){event.preventDefault();const formElement=event.currentTarget;setLoading(true);setError("");const form=new FormData(formElement);const body=Object.fromEntries(form);const response=await fetch("/api/admin/jobs",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});if(!response.ok){setError("Não foi possível criar a vaga.");setLoading(false);return;}const data=await response.json();formElement.reset();router.push(`/admin/vagas/${data.id}`);router.refresh();}

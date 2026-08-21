@@ -85,6 +85,24 @@ export async function createInvitation(email?: string): Promise<{ id: string; to
   return { id: rows[0].id, token };
 }
 
+export async function revokeInvitation(id: string): Promise<boolean> {
+  const rows = await query<{ id: string }>(`UPDATE invitations SET status='revoked' WHERE id=$1 AND organization_id=$2 AND status='pending' RETURNING id`, [id, orgId]);
+  return rows.length > 0;
+}
+
+export async function deleteInvitation(id: string): Promise<boolean> {
+  // members.invitation_id é ON DELETE SET NULL: excluir um convite aceito mantém o membro.
+  const rows = await query<{ id: string }>(`DELETE FROM invitations WHERE id=$1 AND organization_id=$2 RETURNING id`, [id, orgId]);
+  return rows.length > 0;
+}
+
+export async function regenerateInvitationToken(id: string): Promise<string | null> {
+  // O token só existe em claro na criação; regenerar rotaciona o hash e renova a validade.
+  const token = createInviteToken();
+  const rows = await query<{ id: string }>(`UPDATE invitations SET token_hash=$1,expires_at=now()+interval '7 days' WHERE id=$2 AND organization_id=$3 AND status='pending' RETURNING id`, [hashInviteToken(token), id, orgId]);
+  return rows.length ? token : null;
+}
+
 export async function getInvitation(token: string): Promise<{ id: string; email: string | null; status: string; expiresAt: string } | null> {
   const rows = await query<{ id: string; email: string | null; status: string; expiresAt: string }>(`SELECT id,email,status,expires_at::text AS "expiresAt"
     FROM invitations WHERE token_hash=$1 AND organization_id=$2`, [hashInviteToken(token), orgId]);

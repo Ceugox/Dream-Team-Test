@@ -31,7 +31,7 @@ export function parseAdminNetworkFile(data: unknown): AdminNetworkInput[] {
     const linkedinUrl = item.profileUrl ?? item.linkedinUrl ?? null;
     const key = linkedinUrl?.toLowerCase() ?? `${item.name}|${item.headline}`.toLowerCase();
     const previous=unique.get(key);
-    const profileContext=[item.profileContext,text(item.education),text(item.experience),item.internationalExperience===true?"Experiência internacional":typeof item.internationalExperience==="string"?item.internationalExperience:"",previous?.profileContext].filter(Boolean).join(" · ")||null;
+    const profileContext=[item.profileContext,text(item.education),text(item.experience),item.internationalExperience===true?"Experiência internacional":typeof item.internationalExperience==="string"?item.internationalExperience:"",previous?.profileContext].filter(Boolean).join(" · ")||item.headline||null;
     const headline=item.headline||previous?.headline||null;
     const capital=inferNetworkCapital({headline,profileContext});
     unique.set(key,{name:item.name,headline,linkedinUrl,phone:item.phone?normalizePhone(item.phone):previous?.phone??null,source:"linkedin",profileContext,networkCapitalScore:capital.score,networkCapitalEvidence:capital.evidence,networkCapitalConfidence:capital.confidence});

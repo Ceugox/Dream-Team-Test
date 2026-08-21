@@ -24,6 +24,21 @@ describe("admin network", () => {
     expect(contact.networkCapitalEvidence).toEqual(expect.arrayContaining(["Formação Tier B (USP/UNICAMP)","Experiência em instituição reconhecida do mercado financeiro"]));
   });
 
+  it("usa a headline como contexto quando não há histórico mais rico", () => {
+    const [contact] = parseAdminNetworkFile([
+      { name: "Mirela Correa", headline: "Venture Capital @ MAYA Capital", profileUrl: "https://linkedin.com/in/mirela" },
+    ]);
+    expect(contact.profileContext).toBe("Venture Capital @ MAYA Capital");
+  });
+
+  it("prefere o histórico rico à headline quando ambos existem", () => {
+    const [contact] = parseAdminNetworkFile([
+      { name: "Ana", headline: "Engineer", profileUrl: "https://linkedin.com/in/ana", education: ["ITA"] },
+    ]);
+    expect(contact.profileContext).toContain("ITA");
+    expect(contact.profileContext).not.toBe("Engineer");
+  });
+
   it("ranks talent leaders as likely connectors", () => {
     const job=parseJobDescription("Staff Backend Engineer - Nubank\nRequired: typescript, aws", "Staff Backend Engineer");
     const result=scoreConnectorFit({headline:"Head of Talent for fintech engineering"},job);

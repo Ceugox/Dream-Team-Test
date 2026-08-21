@@ -5,6 +5,16 @@
 var CONNECTION_MARKERS = ["conexão feita em", "conexao feita em", "connected", "conectad"];
 var ACTION_LABELS = ["mensagem", "message", "seguir", "follow"];
 
+function pickName(lines, imageAlt) {
+  // O nome é a primeira linha textual do card. Usamos as linhas já quebradas
+  // pelo innerText — nunca o textContent do <a>, que cola nome+headline sem \n.
+  for (var i = 0; i < (lines ? lines.length : 0); i++) {
+    var text = String(lines[i] || "").trim();
+    if (text) return text.slice(0, 160);
+  }
+  return String(imageAlt || "").trim().slice(0, 160);
+}
+
 function pickHeadline(lines, name) {
   var normalizedName = String(name || "").trim().toLowerCase();
   for (var i = 0; i < lines.length; i++) {
@@ -20,5 +30,5 @@ function pickHeadline(lines, name) {
 }
 
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { pickHeadline: pickHeadline, CONNECTION_MARKERS: CONNECTION_MARKERS, ACTION_LABELS: ACTION_LABELS };
+  module.exports = { pickHeadline: pickHeadline, pickName: pickName, CONNECTION_MARKERS: CONNECTION_MARKERS, ACTION_LABELS: ACTION_LABELS };
 }

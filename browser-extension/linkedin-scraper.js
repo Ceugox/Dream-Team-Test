@@ -1,4 +1,4 @@
-/* global pickHeadline, CONNECTION_MARKERS */
+/* global pickHeadline, pickName, CONNECTION_MARKERS */
 // pickHeadline e CONNECTION_MARKERS vêm de headline.js, carregado antes deste
 // script no mesmo content_scripts entry (isolado world compartilhado).
 const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -47,7 +47,9 @@ function collectVisibleConnections() {
     const card = connectionCard(anchor);
     const lines = cleanLines(card.innerText || anchor.textContent || "");
     const imageAlt = anchor.querySelector("img")?.getAttribute("alt")?.trim();
-    const name = (cleanLines(anchor.textContent || "")[0] || imageAlt || "").slice(0, 160);
+    // O nome vem das linhas quebradas do card (innerText), não do textContent do
+    // <a> — que concatena nome+headline sem \n e gerava um título colado.
+    const name = pickName(lines, imageAlt);
     if (!name || /linkedin|perfil|profile/i.test(name)) continue;
     const headline = pickHeadline(lines, name);
     contacts.set(linkedinUrl, { name, headline: headline || "", profileUrl: linkedinUrl, linkedinUrl });

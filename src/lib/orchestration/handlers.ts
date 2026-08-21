@@ -3,7 +3,7 @@ import type { OrchestrationTask } from "./orchestrator";
 import { cancelLinkedInWorkflow, enqueueLinkedInProfileTasks } from "./orchestrator";
 import { getLinkedInSyncService } from "../linkedin/runtime";
 import type { LinkedInSessionStatus } from "../linkedin/types";
-import { analyzeJob, enrichAdminNetworkContact, listJobs, refreshAdminRecommendations } from "../platform/repository";
+import { analyzeJob, enrichAdminNetworkContact, generateAdminNetworkInsights, listJobs, refreshAdminRecommendations } from "../platform/repository";
 
 const JobPayload=z.object({jobId:z.uuid()});
 const ProfilePayload=z.object({administratorId:z.uuid(),contactId:z.uuid()});
@@ -32,6 +32,7 @@ export async function executeTask(task:OrchestrationTask):Promise<unknown>{
     if(task.taskType==="job_analysis"){const {jobId}=JobPayload.parse(task.payload);return {...await analyzeJob(jobId),taskType:task.taskType};}
     if(task.taskType==="profile_enrichment"){const payload=ProfilePayload.parse(task.payload);return {...await enrichAdminNetworkContact(payload.administratorId,payload.contactId),taskType:task.taskType};}
     if(task.taskType==="match_rerank"){const {jobId}=JobPayload.parse(task.payload);return {count:await refreshAdminRecommendations(jobId),taskType:task.taskType};}
+    if(task.taskType==="network_insights"){const {administratorId}=z.object({administratorId:z.guid()}).parse(task.payload);return {...await generateAdminNetworkInsights(administratorId),taskType:task.taskType};}
     if(task.taskType==="linkedin_inventory"){
       const {sessionId,owner}=LinkedInSessionPayload.parse(task.payload);
       const service=getLinkedInSyncService();

@@ -319,7 +319,23 @@ ALTER TABLE orchestration_workflows ADD CONSTRAINT orchestration_workflows_kind_
 
 ALTER TABLE orchestration_tasks DROP CONSTRAINT IF EXISTS orchestration_tasks_task_type_check;
 ALTER TABLE orchestration_tasks ADD CONSTRAINT orchestration_tasks_task_type_check
-  CHECK (task_type IN ('job_analysis','profile_enrichment','match_rerank','linkedin_inventory','linkedin_profile_collect','linkedin_finalize'));
+  CHECK (task_type IN ('job_analysis','profile_enrichment','match_rerank','linkedin_inventory','linkedin_profile_collect','linkedin_finalize','network_insights'));
+
+CREATE TABLE IF NOT EXISTS admin_network_insights (
+  administrator_id uuid PRIMARY KEY REFERENCES administrators(id) ON DELETE CASCADE,
+  organization_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  contacts_count integer NOT NULL DEFAULT 0,
+  area_distribution jsonb NOT NULL DEFAULT '[]'::jsonb,
+  phone_coverage double precision NOT NULL DEFAULT 0,
+  summary text,
+  highlights jsonb NOT NULL DEFAULT '[]'::jsonb,
+  gaps jsonb NOT NULL DEFAULT '[]'::jsonb,
+  source text NOT NULL DEFAULT 'deterministic',
+  model text,
+  prompt_tokens integer NOT NULL DEFAULT 0,
+  completion_tokens integer NOT NULL DEFAULT 0,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
 
 ALTER TABLE orchestration_tasks DROP CONSTRAINT IF EXISTS orchestration_tasks_timeout_seconds_check;
 ALTER TABLE orchestration_tasks ADD CONSTRAINT orchestration_tasks_timeout_seconds_check

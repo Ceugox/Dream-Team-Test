@@ -5,7 +5,7 @@ import type { LinkedInOwner } from "../linkedin/types";
 import { DEFAULT_ORGANIZATION_ID, query, transaction } from "../platform/db";
 import { buildInventoryTaskSpec, buildLinkedInProfilePlan } from "./linkedinQueue";
 
-export type OrchestrationTaskType="job_analysis"|"profile_enrichment"|"match_rerank"|"linkedin_inventory"|"linkedin_profile_collect"|"linkedin_finalize";
+export type OrchestrationTaskType="job_analysis"|"profile_enrichment"|"match_rerank"|"linkedin_inventory"|"linkedin_profile_collect"|"linkedin_finalize"|"network_insights";
 export type OrchestrationTask={id:string;workflowId:string;taskType:OrchestrationTaskType;payload:unknown;tokenBudget:number;timeoutSeconds:number;attempts:number;maxAttempts:number};
 export type WorkflowStatus="pending"|"running"|"completed"|"failed"|"cancelled";
 export type WorkflowListItem={id:string;kind:"job_activation"|"network_enrichment"|"linkedin_sync";entityType:string;entityId:string;status:WorkflowStatus;tokenBudget:number;estimatedCostUsd:number;taskCount:number;completedTasks:number;failedTasks:number;promptTokens:number;completionTokens:number;createdAt:string;completedAt:string|null;error:string|null};
@@ -94,6 +94,18 @@ export async function enqueueNetworkEnrichmentWorkflow(administratorId:string,re
     for(const contact of contacts)enrichmentIds.push(await insertTask(client,{workflowId:workflow.id,taskType:"profile_enrichment",payload:{administratorId,contactId:contact.id},tokenBudget:3600,timeoutSeconds:75,priority:60}));
     for(const job of jobs)await insertTask(client,{workflowId:workflow.id,taskType:"match_rerank",payload:{jobId:job.id},dependsOn:enrichmentIds,tokenBudget:2400,timeoutSeconds:55,priority:80});
     return {workflowId:workflow.id,profiles:contacts.length,jobs:jobs.length};
+  });
+}
+
+export async function enqueueNetworkInsightsWorkflow(administratorId:string,requestedBy:string):Promise<string|null>{
+  return transaction(async client=>{
+    const count=(await client.query<{n:string}>(`SELECT count(*)::text AS n FROM admin_network_contacts WHERE organization_id=$1 AND administrator_id=$2`,[DEFAULT_ORGANIZATION_ID,administratorId])).rows[0];
+    if(!count||Number(count.n)===0)return null;
+    const workflow=(await client.query<{id:string}>(`INSERT INTO orchestration_workflows (organization_id,kind,entity_type,entity_id,token_budget,estimated_cost_usd,requested_by)
+      VALUES ($1,'network_enrichment','network_insights',$2,$3,$4,$5) RETURNING id`,[DEFAULT_ORGANIZATION_ID,administratorId,4000,.02,requestedBy])).rows[0];
+    // Dedup por hora: re-sincronizações seguidas não disparam a LLM repetidamente.
+    await insertTask(client,{workflowId:workflow.id,taskType:"network_insights",payload:{administratorId},tokenBudget:4000,timeoutSeconds:120,priority:70,idempotencyKey:`network_insights:${administratorId}:${new Date().toISOString().slice(0,13)}`});
+    return workflow.id;
   });
 }
 

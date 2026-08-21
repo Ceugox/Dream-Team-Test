@@ -1,7 +1,9 @@
 import type { PoolClient } from "pg";
+import { z } from "zod";
 import { createInviteToken, hashInviteToken } from "./auth";
 import { DEFAULT_ORGANIZATION_ID, query, transaction } from "./db";
-import type { AdminNetworkContact, AdminSourceConnection, Administrator, Invitation, Job, JobIntelligence, JobStatus, Member, NetworkRecommendation, OutreachRequest, OutreachStatus, RecommendationKind, Referral, ReferralStatus } from "./types";
+import type { AdminNetworkContact, AdminNetworkInsight, AdminSourceConnection, Administrator, Invitation, Job, JobIntelligence, JobStatus, Member, NetworkRecommendation, OutreachRequest, OutreachStatus, RecommendationKind, Referral, ReferralStatus } from "./types";
+import { AREA_CODES, areaLabel, inferArea } from "./areaClassifier";
 import { buildWhatsAppUrl, normalizePhone } from "./whatsapp";
 import { createPerson, type Person } from "@/lib/domain/person";
 import { parseHeadline } from "@/lib/enrichment/headline";
@@ -9,7 +11,7 @@ import { parseJobDescription } from "@/lib/matching/jobParser";
 import { rankCandidates } from "@/lib/matching/scoreRegistry";
 import { buildAdminRecommendations } from "./adminMatching";
 import { inferJobIntelligence, inferMatchRanking } from "@/lib/inference/matching";
-import { isInferenceConfigured } from "@/lib/inference/openrouter";
+import { inferStructured, isInferenceConfigured } from "@/lib/inference/openrouter";
 import { discoverPublicProfile } from "@/lib/enrichment/publicProfile";
 import { inferNetworkCapital } from "./networkCapital";
 
@@ -342,6 +344,54 @@ export async function updateAdminNetworkContact(administratorId: string, id: str
   if(!sets.length) return;
   values.push(id,administratorId,orgId);
   await query(`UPDATE admin_network_contacts SET ${sets.join(",")},updated_at=now() WHERE id=$${values.length-2} AND administrator_id=$${values.length-1} AND organization_id=$${values.length}`, values);
+}
+
+// Insight agregado da rede: estatísticas determinísticas + narrativa opcional da LLM.
+// Roda no worker (background) após o sync. Barato: envia só agregados, nunca a rede inteira.
+export async function generateAdminNetworkInsights(administratorId: string): Promise<{ contactsCount:number; source:string; model:string|null; promptTokens:number; completionTokens:number }> {
+  const contacts = await listAdminNetworkContacts(administratorId);
+  const counts = new Map<string,number>();
+  const areaOf = (c: AdminNetworkContact) => c.areaOverride ?? inferArea({ headline: c.headline, profileContext: c.profileContext }).area;
+  for (const c of contacts) { const code = areaOf(c); if (code) counts.set(code, (counts.get(code) ?? 0) + 1); }
+  const areaDistribution = AREA_CODES.map(code => ({ code, label: areaLabel(code) ?? code, count: counts.get(code) ?? 0 })).filter(a => a.count > 0).sort((a,b) => b.count - a.count);
+  const phoneCoverage = contacts.length ? contacts.filter(c => c.phone).length / contacts.length : 0;
+  const topConnectors = [...contacts].sort((a,b) => b.networkCapitalScore - a.networkCapitalScore).slice(0,10)
+    .map(c => ({ name: c.name, area: areaLabel(areaOf(c)) ?? "—", capital: Math.round(c.networkCapitalScore*100) }));
+
+  const topAreas = areaDistribution.slice(0,3).map(a => `${a.label} (${a.count})`);
+  const missing = AREA_CODES.map(code => ({ code, label: areaLabel(code) ?? code })).filter(a => !counts.get(a.code)).map(a => a.label);
+  let summary: string | null = `Rede com ${contacts.length} contatos. Áreas predominantes: ${topAreas.join(", ") || "—"}. Cobertura de telefone: ${Math.round(phoneCoverage*100)}%.`;
+  let highlights: string[] = topAreas.map(a => `Forte em ${a}`);
+  let gaps: string[] = missing.slice(0,5).map(a => `Sub-representado: ${a}`);
+  let source = "deterministic"; let model: string | null = null; let promptTokens = 0; let completionTokens = 0;
+
+  if (isInferenceConfigured() && contacts.length) {
+    try {
+      const result = await inferStructured({
+        schemaName: "network_insights",
+        schema: { type:"object", additionalProperties:false, required:["summary","highlights","gaps"], properties:{ summary:{ type:"string" }, highlights:{ type:"array", items:{ type:"string" } }, gaps:{ type:"array", items:{ type:"string" } } } },
+        validator: z.object({ summary: z.string(), highlights: z.array(z.string()).max(6), gaps: z.array(z.string()).max(6) }),
+        system: "Você é analista de rede profissional. Com base APENAS nos dados agregados fornecidos (distribuição por área, cobertura de telefone, principais conectores por capital de rede), escreva em PT-BR: summary = 1 parágrafo curto sobre composição e força da rede; highlights = 3 a 5 pontos fortes objetivos; gaps = 3 a 5 lacunas/áreas sub-representadas para priorizar no networking. Não invente nomes nem dados fora do payload.",
+        // Sem nomes no payload: o insight é agregado, então não enviamos PII ao provedor.
+        payload: { contactsCount: contacts.length, areaDistribution: areaDistribution.map(a => ({ area: a.label, count: a.count })), phoneCoveragePct: Math.round(phoneCoverage*100), topConnectorCapital: topConnectors.map(t => ({ area: t.area, capital: t.capital })) },
+        maxTokens: 700,
+      });
+      summary = result.data.summary; highlights = result.data.highlights; gaps = result.data.gaps;
+      source = "llm"; model = result.model; promptTokens = result.usage.promptTokens; completionTokens = result.usage.completionTokens;
+    } catch { /* mantém o insight determinístico */ }
+  }
+
+  await query(`INSERT INTO admin_network_insights (administrator_id,organization_id,contacts_count,area_distribution,phone_coverage,summary,highlights,gaps,source,model,prompt_tokens,completion_tokens,created_at)
+    VALUES ($1,$2,$3,$4::jsonb,$5,$6,$7::jsonb,$8::jsonb,$9,$10,$11,$12,now())
+    ON CONFLICT (administrator_id) DO UPDATE SET organization_id=EXCLUDED.organization_id,contacts_count=EXCLUDED.contacts_count,area_distribution=EXCLUDED.area_distribution,phone_coverage=EXCLUDED.phone_coverage,summary=EXCLUDED.summary,highlights=EXCLUDED.highlights,gaps=EXCLUDED.gaps,source=EXCLUDED.source,model=EXCLUDED.model,prompt_tokens=EXCLUDED.prompt_tokens,completion_tokens=EXCLUDED.completion_tokens,created_at=now()`,
+    [administratorId,orgId,contacts.length,JSON.stringify(areaDistribution),phoneCoverage,summary,JSON.stringify(highlights),JSON.stringify(gaps),source,model,promptTokens,completionTokens]);
+  return { contactsCount: contacts.length, source, model, promptTokens, completionTokens };
+}
+
+export async function getAdminNetworkInsights(administratorId: string): Promise<AdminNetworkInsight | null> {
+  const rows = await query<AdminNetworkInsight>(`SELECT contacts_count AS "contactsCount",area_distribution AS "areaDistribution",phone_coverage AS "phoneCoverage",summary,highlights,gaps,source,model,created_at::text AS "createdAt"
+    FROM admin_network_insights WHERE administrator_id=$1 AND organization_id=$2`,[administratorId,orgId]);
+  return rows[0] ?? null;
 }
 
 export async function replaceJobRecommendations(jobId: string, recommendations: Array<{ contactId:string; administratorId:string; kind:RecommendationKind; score:number; confidence:number; evidence:string[]; aiInsight?:string|null; aiConfidence?:number|null; inferenceModel?:string|null }>): Promise<void> {

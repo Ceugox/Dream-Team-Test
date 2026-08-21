@@ -6,6 +6,7 @@ import { addAdminNetworkContact, listAdminNetworkContacts, listJobs, refreshAdmi
 import { normalizePhone } from "@/lib/platform/whatsapp";
 import { inferNetworkCapital } from "@/lib/platform/networkCapital";
 import { AREA_CODES } from "@/lib/platform/areaClassifier";
+import { enqueueNetworkInsightsWorkflow } from "@/lib/orchestration/orchestrator";
 
 export async function GET(){const session=await getAdminSession();if(!session)return NextResponse.json({error:"unauthorized"},{status:401});return NextResponse.json({contacts:await listAdminNetworkContacts(session.administratorId)});}
 
@@ -15,11 +16,11 @@ export async function POST(request:Request){
   if(body.mode==="browser-sync"){
     // Upsert incremental: sincronizações se acumulam por linkedin_url e nunca
     // apagam contatos de uma coleta anterior maior (ON CONFLICT DO UPDATE).
-    try{const contacts=parseAdminNetworkFile(body.contacts);await replaceAdminNetworkContacts(session.administratorId,contacts);const jobs=await listJobs();await Promise.all(jobs.filter(job=>job.status==="open").map(job=>refreshAdminRecommendations(job.id)));return NextResponse.json({count:contacts.length});}
+    try{const contacts=parseAdminNetworkFile(body.contacts);await replaceAdminNetworkContacts(session.administratorId,contacts);const jobs=await listJobs();await Promise.all(jobs.filter(job=>job.status==="open").map(job=>refreshAdminRecommendations(job.id)));await enqueueNetworkInsightsWorkflow(session.administratorId,session.administratorId).catch(()=>null);return NextResponse.json({count:contacts.length});}
     catch{return NextResponse.json({error:"invalid_browser_sync"},{status:400});}
   }
   if(body.mode==="replace"){
-    try{const contacts=parseAdminNetworkFile(body.contacts);await replaceAdminNetworkContacts(session.administratorId,contacts);const jobs=await listJobs();await Promise.all(jobs.filter(job=>job.status==="open").map(job=>refreshAdminRecommendations(job.id)));return NextResponse.json({count:contacts.length});}
+    try{const contacts=parseAdminNetworkFile(body.contacts);await replaceAdminNetworkContacts(session.administratorId,contacts);const jobs=await listJobs();await Promise.all(jobs.filter(job=>job.status==="open").map(job=>refreshAdminRecommendations(job.id)));await enqueueNetworkInsightsWorkflow(session.administratorId,session.administratorId).catch(()=>null);return NextResponse.json({count:contacts.length});}
     catch{return NextResponse.json({error:"invalid_network_file"},{status:400});}
   }
   const result=z.object({mode:z.literal("manual"),name:z.string().trim().min(2).max(160),headline:z.string().trim().max(500).optional(),profileContext:z.string().trim().max(4000).optional(),linkedinUrl:z.url().max(1000).optional().or(z.literal("")),phone:z.string().min(8).max(40)}).safeParse(body);

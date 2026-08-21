@@ -63,6 +63,17 @@ export type AdminNetworkContact = {
   publicIdentityConfidence: number; publicSources: Array<{url:string;title:string;excerpt:string|null}>; publicEnrichedAt: string | null;
   areaOverride: string | null;
 };
+export type AdminNetworkInsight = {
+  contactsCount: number;
+  areaDistribution: Array<{ code:string; label:string; count:number }>;
+  phoneCoverage: number;
+  summary: string | null;
+  highlights: string[];
+  gaps: string[];
+  source: string;
+  model: string | null;
+  createdAt: string;
+};
 export type RecommendationKind = "candidate_fit" | "connector_fit";
 export type NetworkRecommendation = {
   id: string; jobId: string; contactId: string; administratorId: string; ownerName: string;

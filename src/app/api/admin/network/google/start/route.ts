@@ -11,8 +11,13 @@ function popupResponse(type: string, message: string, status = 200) {
   return new Response(`<!doctype html><html lang="pt-BR"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Conexão Google</title><style>body{margin:0;background:#0b0d12;color:#fff;font:16px system-ui;display:grid;min-height:100vh;place-items:center;padding:24px;box-sizing:border-box}.card{max-width:420px;border:1px solid #343949;border-radius:20px;background:#141720;padding:24px}p{color:#aeb4c0;line-height:1.6}button{min-height:48px;border:0;border-radius:12px;padding:0 18px;font-weight:600;cursor:pointer}</style><div class="card"><h1>Conexão Google</h1><p>${message}</p><button onclick="window.close()">Fechar</button></div><script>window.opener?.postMessage(${payload},location.origin)</script></html>`, { status, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
 }
 
+// A importação do Google está desativada nesta versão (implementação futura): a única porta
+// de entrada de rede hoje é o conector do navegador para o LinkedIn.
+const GOOGLE_IMPORT_ENABLED = process.env.GOOGLE_IMPORT_ENABLED === "true";
+
 export async function GET(request: Request) {
   if (!(await getAdminSession())) return popupResponse("rc:google-error", "Sua sessão expirou. Entre novamente e tente conectar.", 401);
+  if (!GOOGLE_IMPORT_ENABLED) return popupResponse("rc:google-unavailable", "A importação do Google é uma implementação futura e ainda não está disponível.", 503);
   const config = googleOAuthConfig();
   if (!config) return popupResponse("rc:google-unavailable", "A conexão Google ainda não foi ativada neste ambiente.", 503);
 

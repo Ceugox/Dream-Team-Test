@@ -1,7 +1,12 @@
 import { z } from "zod";
-import { createPerson, type Person } from "../domain/person";
-import type { NetworkSource } from "./base";
-import type { LinkedInConnectionRaw } from "./demoData";
+
+// Contrato do que a extensão devolve por conexão (nome, headline e URL pública).
+export interface LinkedInConnectionRaw {
+  name: string;
+  headline: string;
+  profileUrl: string;
+  connectedOn?: string;
+}
 
 const LinkedInConnectionSchema = z.object({
   name: z.string(),
@@ -12,22 +17,4 @@ const LinkedInConnectionSchema = z.object({
 
 export function parseLinkedInExport(data: unknown): LinkedInConnectionRaw[] {
   return z.array(LinkedInConnectionSchema).parse(data);
-}
-
-export class LinkedInSource implements NetworkSource {
-  name = "linkedin" as const;
-
-  constructor(private connections: LinkedInConnectionRaw[]) {}
-
-  async *discoverPeople(): AsyncGenerator<Person> {
-    for (const conn of this.connections) {
-      yield createPerson({
-        id: `linkedin:${conn.profileUrl}`,
-        name: conn.name,
-        headline: conn.headline || null,
-        linkedinUrl: conn.profileUrl,
-        sources: ["linkedin"],
-      });
-    }
-  }
 }

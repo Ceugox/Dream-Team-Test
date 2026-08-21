@@ -1,6 +1,6 @@
 import { claimTask, completeTask, extendTaskLease, failTask } from "../src/lib/orchestration/orchestrator";
 import { executeTask } from "../src/lib/orchestration/handlers";
-import { createSafeLogger } from "../src/lib/linkedin/safeLogger";
+import { createSafeLogger } from "../src/lib/logging/safeLogger";
 
 const log=createSafeLogger();
 const logError=createSafeLogger(line=>console.error(line));

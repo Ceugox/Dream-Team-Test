@@ -95,9 +95,9 @@ A integração inicial usa o click-to-chat oficial: o botão abre `wa.me` com o 
 
 ## LinkedIn
 
-Administradores e membros usam a mesma jornada sem instalação: o botão **Continuar com LinkedIn** abre uma sessão de navegador remota e temporária (Browserless), onde o login acontece normalmente em tela isolada. Um worker conecta à mesma sessão, coleta primeiro o inventário de conexões e depois enriquece os perfis priorizados pelas vagas abertas, persistindo cada resultado de forma incremental. A UI acompanha tudo por SSE (estado, contador `N de M`, resultados iniciais) e oferece **Encerrar agora** a qualquer momento.
+Administradores e membros usam a mesma jornada: o botão **Conectar pelo conector** aciona a extensão local de navegador (`browser-extension/`, Chrome ou Edge), que abre o LinkedIn na própria sessão do usuário e mapeia as conexões visíveis. A extensão devolve os contatos para `/api/admin/network` (ou `/api/member/linkedin`) em `mode: "browser-sync"`, e a persistência é um upsert incremental por `linkedin_url` — resincronizar nunca reduz a rede já coletada.
 
-Senha, cookies e HTML nunca passam pela aplicação nem são persistidos; apenas uma referência criptografada da sessão fica no banco e é apagada em qualquer estado terminal. CAPTCHA, checkpoint e rate limit pausam a coleta sem tentativa de contorno. A integração liga e desliga pela flag `LINKEDIN_REMOTE_SYNC_ENABLED` — operação detalhada em `docs/runbooks/linkedin-remote-sync.md`.
+Nenhuma senha ou cookie passa pela aplicação: o login acontece no navegador do próprio usuário, e a plataforma recebe apenas nome, headline e URL pública de cada conexão. A importação do Google Contacts é implementação futura e está desativada.
 
 ## Arquitetura
 

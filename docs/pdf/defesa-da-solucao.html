@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Referral Copilot — Defesa da Solução</title>
+<style>
+  @page { size: A4; margin: 17mm 15mm; }
+  * { box-sizing: border-box; }
+  body { font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif; color: #15171c; font-size: 10pt; line-height: 1.5; margin: 0; }
+  h1 { font-size: 24pt; line-height: 1.12; margin: 0 0 6px; letter-spacing: -.5px; }
+  h2 { font-size: 13.5pt; margin: 24px 0 9px; padding-bottom: 5px; border-bottom: 2px solid #e4e7ee; letter-spacing: -.2px; }
+  h3 { font-size: 11pt; margin: 15px 0 5px; }
+  p { margin: 0 0 8px; }
+  ul, ol { margin: 0 0 9px; padding-left: 19px; }
+  li { margin-bottom: 4px; }
+  .sub { color: #565b6b; font-size: 10.5pt; margin-bottom: 18px; }
+  .cover { border-left: 4px solid #0f766e; padding-left: 14px; margin-bottom: 22px; }
+  .kpis { display: flex; gap: 8px; margin: 14px 0 18px; }
+  .kpi { flex: 1; border: 1px solid #dfe3ea; border-radius: 9px; padding: 9px 10px; background: #fafbfd; text-align: center; }
+  .kpi b { display: block; font-size: 15pt; color: #0f766e; line-height: 1.1; }
+  .kpi span { font-size: 7.5pt; color: #5b6070; text-transform: uppercase; letter-spacing: .4px; }
+  table { width: 100%; border-collapse: collapse; margin: 9px 0 13px; font-size: 9pt; }
+  th, td { border-bottom: 1px solid #e4e7ee; padding: 6px 8px; text-align: left; vertical-align: top; }
+  th { background: #f5f7fa; font-size: 8pt; text-transform: uppercase; letter-spacing: .4px; color: #4a4f5f; }
+  .dec { border: 1px solid #dfe3ea; border-left: 3px solid #0f766e; border-radius: 0 8px 8px 0; padding: 10px 13px; margin-bottom: 9px; background: #fafbfd; page-break-inside: avoid; }
+  .dec .h { font-weight: 680; font-size: 10.5pt; margin-bottom: 3px; }
+  .dec .l { font-size: 8pt; text-transform: uppercase; letter-spacing: .5px; color: #0f766e; font-weight: 700; }
+  .q { border: 1px solid #dfe3ea; border-radius: 8px; padding: 10px 13px; margin-bottom: 8px; page-break-inside: avoid; }
+  .q .p { font-weight: 680; margin-bottom: 4px; }
+  .honest { background: #fff8ec; border-left: 3px solid #d98b1a; padding: 9px 13px; border-radius: 0 7px 7px 0; margin: 11px 0; page-break-inside: avoid; }
+  code { background: #f1f2f6; padding: 1px 4px; border-radius: 4px; font-family: Consolas, monospace; font-size: 8.5pt; }
+  .pb { page-break-before: always; }
+  footer { margin-top: 22px; padding-top: 8px; border-top: 1px solid #e4e7ee; color: #787e8e; font-size: 8pt; }
+</style>
+</head>
+<body>
+
+<div class="cover">
+  <h1>Referral Copilot</h1>
+  <div class="sub">Defesa da solução — problema, decisões de engenharia, trade-offs e evidências</div>
+</div>
+
+<h2>1. O problema e a tese</h2>
+
+<p>Vagas técnicas se preenchem por rede, mas a rede da empresa está fragmentada nas contas pessoais de cada pessoa do time — e ninguém vai entregar sua lista de contatos ao RH. O produto resolve essa tensão invertendo a posse do dado: <strong>cada pessoa mantém a própria rede privada</strong>, a plataforma cruza essa rede com as vagas abertas e só o que o dono confirma como indicação se torna visível ao administrador.</p>
+
+<p>A tese técnica é que a maior parte do valor vem de <strong>ranqueamento explicável sobre dados que a pessoa já tem</strong>, não de um modelo caro. A IA entra onde agrega — interpretar descrição de vaga, reranquear os melhores resultados, resumir a composição da rede — sempre com caminho determinístico de fallback.</p>
+
+<div class="kpis">
+  <div class="kpi"><b>120</b><span>testes automatizados</span></div>
+  <div class="kpi"><b>374</b><span>conexões reais mapeadas</span></div>
+  <div class="kpi"><b>4</b><span>especialistas na fila</span></div>
+  <div class="kpi"><b>0</b><span>credenciais armazenadas</span></div>
+</div>
+
+<h2>2. Decisões de engenharia e trade-offs</h2>
+
+<div class="dec">
+  <div class="l">Decisão 1 · Coleta</div>
+  <div class="h">Conector local (extensão) em vez de navegador remoto</div>
+  <p><strong>Contexto:</strong> a primeira implementação usava navegador remoto (Browserless, depois Anchor Browser): o usuário logava numa sessão remota e um worker coletava. Funcionava no papel e a arquitetura era elegante — zero instalação.</p>
+  <p><strong>O que o piloto real mostrou:</strong> fricção alta e inaceitável. O tier gratuito do Browserless não expõe a URL interativa; o login numa janela remota gera desconfiança legítima (o usuário digita a senha numa tela que não é a dele); e verificação em duas etapas trava o fluxo.</p>
+  <p><strong>Decisão:</strong> abandonar o remoto e adotar a extensão local, onde o login acontece na sessão do próprio usuário. <strong>Trade-off aceito:</strong> exige instalação uma única vez — perdemos o "zero setup" e ganhamos confiança, robustez e um modelo de privacidade defensável (nenhuma credencial trafega).</p>
+  <p><strong>Consequência assumida:</strong> depois de validado, o fluxo remoto foi <em>removido</em> do código (5.279 linhas, 63 arquivos), em vez de mantido como caminho morto atrás de flag.</p>
+</div>
+
+<div class="dec">
+  <div class="l">Decisão 2 · Privacidade</div>
+  <div class="h">O administrador não tem rota de leitura da rede dos membros</div>
+  <p>Não é regra de UI: <strong>não existe endpoint</strong> que liste os contatos privados de um membro para o administrador. O consentimento é registrado por indicação, com os campos que foram autorizados. Isso torna a promessa de privacidade verificável no código, não apenas na tela.</p>
+</div>
+
+<div class="dec">
+  <div class="l">Decisão 3 · IA</div>
+  <div class="h">Heurística determinística primeiro; LLM só onde ela não alcança</div>
+  <p>Capital de rede e classificação de área são <strong>regras versionadas e explicáveis</strong>, sem LLM: custo zero, resposta imediata, resultado reproduzível e testável. A LLM entra em três pontos — interpretar a vaga, reranquear os melhores candidatos e resumir a rede — e <strong>todos têm fallback determinístico</strong>. Se o provedor cair, o produto continua funcionando com qualidade menor, nunca quebrado.</p>
+  <p><strong>Trade-off:</strong> heurística erra em casos raros e exige manutenção de regras. Mitigação: override manual de área pelo administrador, que sempre prevalece sobre a inferência.</p>
+</div>
+
+<div class="dec">
+  <div class="l">Decisão 4 · Dados enviados à LLM</div>
+  <div class="h">Minimização por desenho</div>
+  <p>O reranking usa identificadores opacos, sem nome, telefone, e-mail ou URL. Os insights de rede enviam <strong>apenas agregados</strong> (distribuição por área, cobertura de contato, faixa de sinal) — nenhum nome sai da plataforma. A análise de vaga não contém dado pessoal.</p>
+</div>
+
+<div class="dec">
+  <div class="l">Decisão 5 · Assincronia</div>
+  <div class="h">Fila no próprio PostgreSQL, não uma dependência nova</div>
+  <p>O trabalho pesado sai do request e vai para um worker separado, com fila em Postgres usando <code>SKIP LOCKED</code>, dependências entre tarefas (DAG), chave de idempotência, orçamento de tokens, timeout, <em>lease</em> de 90s renovado por heartbeat e três tentativas com backoff.</p>
+  <p><strong>Por que não Redis/SQS:</strong> o volume não justifica outro serviço para operar e pagar; o Postgres já é dependência e dá transação junto com o dado. <strong>Trade-off:</strong> não escala para milhões de tarefas — é a escolha certa para o estágio, e a troca depois é local (a interface da fila é isolada).</p>
+  <p>O lease curto existe por um motivo concreto: quando um deploy mata o worker no meio de uma tarefa, ela volta para a fila em ~2 minutos em vez de esperar o timeout inteiro.</p>
+</div>
+
+<div class="dec">
+  <div class="l">Decisão 6 · Persistência</div>
+  <div class="h">Sincronização incremental, nunca destrutiva</div>
+  <p>A gravação é <em>upsert</em> por URL do perfil. Uma coleta parcial (aba fechada no meio, rede instável) atualiza o que veio e <strong>nunca reduz</strong> a rede já mapeada. Antes dessa mudança, uma execução ruim podia encolher o total — o tipo de bug que destrói confiança no produto.</p>
+</div>
+
+<h2 class="pb">3. Arquitetura em uma página</h2>
+
+<table>
+  <tr><th>Camada</th><th>Escolha</th><th>Razão</th></tr>
+  <tr><td>Web</td><td>Next.js 16 + React 19, Route Handlers</td><td>Um só runtime para UI e API reduz superfície de operação; renderização no servidor mantém a autorização perto do dado.</td></tr>
+  <tr><td>Dados</td><td>PostgreSQL com <code>pg</code>, FKs, índices, transações</td><td>Integridade referencial e transação onde o domínio exige (aceitar convite, gravar consentimento).</td></tr>
+  <tr><td>Migração</td><td>Script idempotente no <code>start</code></td><td>Deploy sem etapa manual; seguro para rodar em toda subida.</td></tr>
+  <tr><td>Assíncrono</td><td>Worker separado consumindo fila Postgres</td><td>Isola custo e latência de IA do caminho do usuário; escala independente.</td></tr>
+  <tr><td>Validação</td><td>Zod em toda fronteira externa</td><td>Dado de extensão, upload e payload de tarefa nunca entram sem contrato.</td></tr>
+  <tr><td>Coleta</td><td>Extensão Manifest V3 com funções puras testadas</td><td>A lógica de extração é testável fora do navegador, sem DOM.</td></tr>
+  <tr><td>Contato</td><td>WhatsApp click-to-chat oficial</td><td>Sem automação de DOM e sem disparo em massa: o humano revisa e envia.</td></tr>
+</table>
+
+<h3>Segurança aplicada</h3>
+<ul>
+  <li>Cookies de sessão assinados, <code>httpOnly</code>, <code>sameSite=lax</code> e <code>secure</code> em produção.</li>
+  <li>Chave administrativa comparada em tempo constante (evita ataque por timing).</li>
+  <li>Convites: token aleatório com <strong>apenas o hash persistido</strong>; consumo dentro de transação com bloqueio de linha, o que impede aceite duplicado em concorrência.</li>
+  <li>Contatos isolados por dono, sem rota administrativa de listagem.</li>
+</ul>
+
+<h2>4. Como sei que funciona (evidência, não opinião)</h2>
+
+<table>
+  <tr><th>Verificação</th><th>Resultado</th></tr>
+  <tr><td>Suíte automatizada (Vitest)</td><td>120 testes passando em 28 arquivos</td></tr>
+  <tr><td>Tipagem estrita (<code>tsc --noEmit</code>)</td><td>Sem erros</td></tr>
+  <tr><td>Build de produção (<code>next build</code>)</td><td>Passa; mapa de rotas conferido</td></tr>
+  <tr><td>Piloto real de coleta</td><td>374 conexões reais mapeadas de ponta a ponta</td></tr>
+  <tr><td>Serviço web em produção</td><td><code>HTTP 200</code></td></tr>
+  <tr><td>Worker em produção</td><td>Log <code>event="worker_started"</code> após migração</td></tr>
+</table>
+
+<p>A extração do LinkedIn foi validada <strong>contra o HTML real</strong> da página de conexões antes de virar código de produção, e as funções de extração (nome e cargo) são puras e cobertas por teste — inclusive casos difíceis como nomes com sufixo ("Nome, LLB, MBA") e cartões sem cargo.</p>
+
+<h3>Dois bugs que valem contar</h3>
+<p><strong>Lista virtualizada:</strong> a coleta parava em ~10 contatos. Causa: o LinkedIn mantém só ~10 cartões no DOM e recicla ao rolar. Solução: rolar em passos pequenos coletando a cada passo, normalizando a URL para <code>/in/&lt;slug&gt;</code> — validado no console antes de portar.</p>
+<p><strong>Nome colado no cargo:</strong> a extração usava <code>textContent</code>, que concatena sem quebra de linha. Passou a usar as linhas do <code>innerText</code> do cartão. O sintoma aparecia na tela; a causa estava na semântica de duas APIs parecidas do DOM.</p>
+
+<h2 class="pb">5. Limites conhecidos (o que eu <em>não</em> vou defender)</h2>
+
+<div class="honest">
+  <p><strong>Termos de uso do LinkedIn.</strong> A plataforma não usa API oficial do LinkedIn — lê o que o usuário já vê, na sessão dele, por ação explícita dele. Isso reduz o risco (sem credencial em servidor, sem acesso a dado não visível, sem operação em massa e com pausas que respeitam o ritmo da página), mas <strong>não elimina</strong> a fricção com os termos de uso, que restringem coleta automatizada. Para uso comercial em escala, o caminho correto é parceria/API oficial ou importação manual do arquivo de conexões — o produto já aceita esse arquivo.</p>
+</div>
+
+<ul>
+  <li><strong>Profundidade do perfil:</strong> hoje se captura nome, cargo e URL. Formação e histórico só entram se preenchidos manualmente ou pelo arquivo importado. Aprofundar exigiria visitar cada perfil — mais tempo e mais exposição, então ficou fora de escopo.</li>
+  <li><strong>Classificação heurística:</strong> cobre bem tech, dados, produto e finanças; áreas de nicho podem cair no rótulo genérico. Por isso existe o override manual.</li>
+  <li><strong>Fila em Postgres:</strong> adequada para o volume atual, não para milhões de tarefas.</li>
+  <li><strong>Google Contacts:</strong> declarado como implementação futura e desativado — preferi um "não disponível" honesto a uma integração meia-boca.</li>
+  <li><strong>Duas tabelas órfãs</strong> do fluxo remoto continuam no banco, vazias e sem código que as leia. A remoção foi deixada para uma janela própria, porque <em>drop</em> é irreversível.</li>
+</ul>
+
+<h2>6. Perguntas difíceis, respondidas</h2>
+
+<div class="q">
+  <div class="p">"Por que não usar a API oficial do LinkedIn?"</div>
+  <p>A API oficial não expõe a lista de conexões de um membro para uma aplicação terceira — esse dado simplesmente não está disponível por lá. Como o produto depende exatamente dele, as opções reais eram: importação manual do arquivo de conexões (aceita pelo produto) ou leitura assistida na sessão do usuário. Escolhi oferecer as duas, deixando o limite explícito.</p>
+</div>
+
+<div class="q">
+  <div class="p">"Isso é só um wrapper de LLM?"</div>
+  <p>Não. O ranqueamento central é determinístico e explicável; a LLM reranqueia e resume. Desligando todos os provedores, o produto continua entregando recomendações com evidência — só perde nuance. A evidência disso é que <strong>a suíte inteira roda sem nenhum provedor configurado</strong>: parsing de vaga, fit de candidato, score de indicação, capital de rede e classificação de área são todos testados sem chamar LLM. (Um teste que simule explicitamente a queda do provedor em produção é uma lacuna reconhecida da cobertura.)</p>
+</div>
+
+<div class="q">
+  <div class="p">"Como você evita viés na recomendação?"</div>
+  <p>Três travas deliberadas: (1) os sinais de capital de rede têm contribuição limitada e servem <em>apenas</em> à hipótese de que alguém conheça bons candidatos, nunca ao fit do candidato; (2) a ausência de formação ou empresa reconhecida <strong>nunca</strong> reduz pontuação; (3) toda recomendação carrega a evidência textual que a sustenta, então a decisão humana é auditável. A plataforma não decide contratação.</p>
+</div>
+
+<div class="q">
+  <div class="p">"E se o membro sair da empresa?"</div>
+  <p>A rede nunca foi da empresa — é do membro. Sai com ele. O que a empresa retém são as indicações que foram explicitamente consentidas, com o registro do que foi autorizado. É o desenho correto do ponto de vista ético e o que torna o produto adotável.</p>
+</div>
+
+<div class="q">
+  <div class="p">"Por que apagar o fluxo remoto em vez de deixar atrás de uma flag?"</div>
+  <p>Porque código morto atrás de flag tem custo real: aumenta a superfície de segurança (rotas e segredos ativos), confunde quem lê depois, e a documentação envelhece apontando para um caminho que não existe. Depois de decidir a direção, mantive apenas o que estava vivo — e verifiquei o corte com build, testes e logs de produção antes de considerar concluído.</p>
+</div>
+
+<div class="q">
+  <div class="p">"Qual seria seu próximo passo com mais tempo?"</div>
+  <p>Nesta ordem: (1) medir conversão real do funil indicação→contratação, que é a métrica que valida a tese; (2) enriquecimento opcional de perfil com consentimento por contato; (3) publicar a extensão na loja para eliminar a instalação em modo desenvolvedor; (4) API oficial do WhatsApp quando o volume justificar.</p>
+</div>
+
+<footer>Referral Copilot · Defesa da solução · Números verificados por execução: suíte de testes, <code>tsc</code>, <code>next build</code> e logs de produção.</footer>
+
+</body>
+</html>

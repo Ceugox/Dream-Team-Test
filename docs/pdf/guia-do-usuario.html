@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Referral Copilot — Guia do Usuário</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm; }
+  * { box-sizing: border-box; }
+  body { font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif; color: #16181d; font-size: 10.5pt; line-height: 1.55; margin: 0; }
+  h1 { font-size: 25pt; line-height: 1.15; margin: 0 0 6px; letter-spacing: -.4px; }
+  h2 { font-size: 14pt; margin: 26px 0 10px; padding-bottom: 5px; border-bottom: 2px solid #e6e8ee; letter-spacing: -.2px; }
+  h3 { font-size: 11.5pt; margin: 18px 0 6px; }
+  p { margin: 0 0 9px; }
+  ul, ol { margin: 0 0 10px; padding-left: 20px; }
+  li { margin-bottom: 5px; }
+  .sub { color: #5b6070; font-size: 11pt; margin-bottom: 20px; }
+  .cover { border-left: 4px solid #4f46e5; padding-left: 14px; margin-bottom: 26px; }
+  .tag { display: inline-block; background: #eef0fb; color: #3b35b8; border-radius: 20px; padding: 2px 10px; font-size: 8.5pt; font-weight: 600; margin-right: 5px; }
+  .step { border: 1px solid #e2e5ec; border-radius: 9px; padding: 11px 14px; margin-bottom: 9px; background: #fbfcfe; page-break-inside: avoid; }
+  .step .n { display: inline-grid; place-items: center; width: 21px; height: 21px; border-radius: 50%; background: #4f46e5; color: #fff; font-size: 9pt; font-weight: 700; margin-right: 8px; vertical-align: middle; }
+  .step .t { font-weight: 650; font-size: 10.5pt; }
+  .note { background: #f4f7ff; border-left: 3px solid #4f46e5; padding: 9px 13px; border-radius: 0 7px 7px 0; margin: 12px 0; page-break-inside: avoid; }
+  .warn { background: #fff8ec; border-left: 3px solid #d98b1a; padding: 9px 13px; border-radius: 0 7px 7px 0; margin: 12px 0; page-break-inside: avoid; }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0 14px; font-size: 9.5pt; }
+  th, td { border-bottom: 1px solid #e6e8ee; padding: 7px 9px; text-align: left; vertical-align: top; }
+  th { background: #f6f7fa; font-size: 8.5pt; text-transform: uppercase; letter-spacing: .5px; color: #4b5060; }
+  code { background: #f1f2f6; padding: 1px 5px; border-radius: 4px; font-family: Consolas, monospace; font-size: 9pt; }
+  .pb { page-break-before: always; }
+  footer { margin-top: 26px; padding-top: 9px; border-top: 1px solid #e6e8ee; color: #7a8090; font-size: 8.5pt; }
+</style>
+</head>
+<body>
+
+<div class="cover">
+  <h1>Referral Copilot</h1>
+  <div class="sub">Guia do usuário — como mapear sua rede e transformar conexões em indicações</div>
+  <span class="tag">Administrador</span><span class="tag">Membro convidado</span>
+</div>
+
+<p>O Referral Copilot ajuda a preencher vagas usando a rede profissional que a equipe já tem. Cada pessoa conecta a própria rede, a plataforma cruza os perfis com as vagas abertas e sugere <strong>quem pode ser o candidato</strong> e <strong>quem pode indicar alguém</strong>. Nada é compartilhado sem consentimento explícito.</p>
+
+<div class="note"><strong>A regra que rege tudo:</strong> o administrador nunca vê a lista de contatos privados de um membro. Ele só passa a ver um nome quando o próprio membro confirma uma indicação.</div>
+
+<h2>1. Conectar sua rede do LinkedIn</h2>
+
+<p>A conexão é feita por um <strong>conector de navegador</strong> (extensão para Chrome ou Edge). Ele abre o LinkedIn na sessão em que você já está logado e lê apenas as conexões visíveis. Sua senha nunca passa pela plataforma.</p>
+
+<div class="step"><span class="n">1</span><span class="t">Instale o conector (uma única vez)</span>
+<ul>
+  <li>Na tela <em>Minha rede</em>, clique em <strong>Conectar pelo conector</strong>. Se a extensão ainda não estiver instalada, aparece o link <strong>Baixar conector para Chrome ou Edge</strong>.</li>
+  <li>Descompacte o arquivo em uma pasta fixa do computador (não apague depois).</li>
+  <li>Abra <code>chrome://extensions</code>, ative o <strong>Modo do desenvolvedor</strong> e clique em <strong>Carregar sem compactação</strong>, escolhendo a pasta descompactada.</li>
+</ul>
+</div>
+
+<div class="step"><span class="n">2</span><span class="t">Faça login no LinkedIn normalmente</span>
+<p>Clique novamente em <strong>Conectar pelo conector</strong>. Uma aba do LinkedIn abre. Se você não estiver logado, faça o login como sempre faz — inclusive verificação em duas etapas, se houver.</p>
+</div>
+
+<div class="step"><span class="n">3</span><span class="t">Deixe o mapeamento terminar</span>
+<p>A plataforma mostra o contador de conexões encontradas. <strong>Mantenha a aba do LinkedIn aberta e em primeiro plano</strong> até concluir — a lista do LinkedIn carrega conforme rola, então a aba precisa ficar ativa. Em redes de algumas centenas de conexões, leva poucos minutos.</p>
+</div>
+
+<div class="step"><span class="n">4</span><span class="t">Confira o resultado</span>
+<p>Ao terminar, a mensagem indica quantas conexões foram sincronizadas e a aba <em>Minha rede</em> passa a listar os contatos com cargo, área e sinais de rede.</p>
+</div>
+
+<div class="warn"><strong>Sincronizar de novo é seguro.</strong> A atualização é incremental: contatos já mapeados são atualizados e nunca removidos. Se uma execução for interrompida, basta rodar outra vez — o total não diminui.</div>
+
+<h3>O que a plataforma recebe</h3>
+<table>
+  <tr><th>Recebe</th><th>Nunca recebe</th></tr>
+  <tr>
+    <td>Nome, cargo/headline e URL pública do perfil de cada conexão</td>
+    <td>Senha, cookies de sessão ou qualquer credencial</td>
+  </tr>
+  <tr>
+    <td>Contagem e data da sincronização</td>
+    <td>Mensagens, e-mails ou conteúdo privado da sua conta</td>
+  </tr>
+</table>
+
+<h2 class="pb">2. Entender a aba Minha rede</h2>
+
+<p>Cada contato aparece em um cartão com o cargo em destaque, o nome abaixo e etiquetas de contexto:</p>
+
+<table>
+  <tr><th>Elemento</th><th>O que significa</th></tr>
+  <tr><td><strong>Etiqueta de área</strong></td><td>Área de atuação inferida do cargo e da stack (ex.: Dados &amp; IA/ML, Vendas &amp; GTM). Serve para você achar rapidamente quem é de cada campo.</td></tr>
+  <tr><td><strong>Capital de rede</strong></td><td>Sinais profissionais explícitos (formação, empresas anteriores, experiência internacional). Sugere quem tende a ter uma rede ampla — nunca é avaliação da pessoa.</td></tr>
+  <tr><td><strong>WhatsApp ✓</strong></td><td>Existe telefone cadastrado, então dá para abrir a conversa direto da fila de contato.</td></tr>
+  <tr><td><strong>% sinal</strong></td><td>Força combinada dos sinais encontrados no perfil.</td></tr>
+</table>
+
+<h3>Insights da rede</h3>
+<p>Depois de cada sincronização, a plataforma gera em segundo plano um resumo da sua rede: composição por área, pontos fortes e <strong>lacunas</strong> (áreas em que você tem pouca gente). Use as lacunas para orientar onde vale investir em networking. O resumo aparece sozinho em alguns instantes — não é preciso clicar em nada.</p>
+
+<h3>Corrigir ou completar um contato</h3>
+<p>Clique em <strong>Editar</strong> no cartão para ajustar:</p>
+<ul>
+  <li><strong>Headline / contexto</strong> — cargo, stack, empresa e histórico relevante (formação, empresas anteriores).</li>
+  <li><strong>Área</strong> — escolha uma das áreas se a classificação automática não fizer sentido. Sua escolha manual sempre prevalece.</li>
+  <li><strong>WhatsApp</strong> — inclua o número com código do país. Deixar em branco remove o número.</li>
+</ul>
+<p>Editar o contexto recalcula na hora os sinais e as recomendações das vagas abertas.</p>
+
+<h2>3. Publicar vagas e receber recomendações</h2>
+
+<div class="step"><span class="n">1</span><span class="t">Cadastre a vaga</span>
+<p>Em <em>Vagas</em>, informe cargo, empresa, localização e cole a descrição. Publique como <strong>aberta</strong> para buscar pessoas imediatamente ou salve como rascunho.</p>
+</div>
+
+<div class="step"><span class="n">2</span><span class="t">Leia as duas listas</span>
+<p>Para cada vaga, a plataforma separa <strong>potenciais candidatos</strong> (perfil aderente à vaga) de <strong>possíveis indicadores</strong> (gente que provavelmente conhece bons candidatos: recrutadores, lideranças, pessoas da mesma área). Cada linha mostra a evidência que sustenta a sugestão.</p>
+</div>
+
+<div class="step"><span class="n">3</span><span class="t">Fale com a pessoa pelo WhatsApp</span>
+<p>A plataforma monta a mensagem e abre a conversa no WhatsApp já preenchida. <strong>Você revisa e envia</strong> — não há disparo automático nem em massa. Depois registre o desfecho: <em>Envio confirmado</em>, <em>Respondeu</em>, <em>Indicou alguém</em> ou <em>Sem retorno</em>.</p>
+</div>
+
+<h2>4. Convidar a equipe</h2>
+
+<p>Em <em>Equipe</em>, crie um convite (com ou sem e-mail vinculado) e envie o link pelo canal que preferir. Cada convite vale <strong>sete dias</strong>.</p>
+
+<table>
+  <tr><th>Ação</th><th>Quando usar</th></tr>
+  <tr><td><strong>Gerar novo link</strong></td><td>Perdeu a URL ou quer reenviar. Gera um link novo e invalida o anterior.</td></tr>
+  <tr><td><strong>Revogar</strong></td><td>O convite não deve mais ser aceito. Ele para de funcionar imediatamente.</td></tr>
+  <tr><td><strong>Excluir</strong></td><td>Limpar a lista. Se o convite já havia sido aceito, o membro continua ativo.</td></tr>
+</table>
+
+<p>Os estados aparecem na lista: <strong>Pendente</strong>, <strong>Aceito</strong>, <strong>Revogado</strong> e <strong>Expirado</strong> (quando passou dos sete dias).</p>
+
+<h2>5. Perguntas frequentes</h2>
+
+<h3>Preciso instalar algo para usar a plataforma?</h3>
+<p>Só para conectar o LinkedIn. Todo o resto — vagas, recomendações, convites, WhatsApp — funciona no navegador, sem instalação.</p>
+
+<h3>Por que a conexão exige uma extensão?</h3>
+<p>Porque é a forma de você fazer login no LinkedIn <em>no seu próprio navegador</em>. Nenhuma senha ou cookie chega à plataforma, e sua conta não é acessada por um servidor remoto.</p>
+
+<h3>O administrador vê meus contatos?</h3>
+<p>Não. Ele vê métricas agregadas (quantas conexões você mapeou) e recebe nome e contexto <strong>somente</strong> das pessoas que você confirmar como indicação.</p>
+
+<h3>Alguns contatos aparecem sem cargo. É problema?</h3>
+<p>Não. Significa que o LinkedIn não exibia a headline naquele cartão. Você pode preencher manualmente pelo <strong>Editar</strong>.</p>
+
+<h3>A plataforma decide contratações?</h3>
+<p>Não. Todos os sinais são sugestões explicáveis para orientar conversas humanas. A avaliação profissional continua sendo de quem contrata.</p>
+
+<h3>Posso conectar o Google Contacts?</h3>
+<p>Ainda não — está sinalizado como <strong>implementação futura</strong> e o cartão aparece desabilitado.</p>
+
+<footer>Referral Copilot · Guia do usuário · A conexão do LinkedIn usa a sessão do próprio usuário; nenhuma credencial é armazenada pela plataforma.</footer>
+
+</body>
+</html>

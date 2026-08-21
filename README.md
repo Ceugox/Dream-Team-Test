@@ -7,7 +7,7 @@ Plataforma privada de indicações profissionais. O administrador publica vagas 
 1. Cada administrador entra com identidade própria, conecta sua rede e publica as vagas prioritárias.
 2. O administrador cria convites individuais, válidos por sete dias.
 3. O colega aceita o convite e acessa uma área privada.
-4. O colega clica em **Continuar com LinkedIn**, autentica-se em uma sessão privada isolada e acompanha o mapeamento automático.
+4. O colega clica em **Conectar pelo conector**: a extensão local abre o LinkedIn na sessão que ele já usa e mapeia as conexões visíveis.
 5. O motor cruza cargo, senioridade, competências, empresa e localização com as vagas ativas.
 6. Somente quando o colega confirma uma indicação, nome, perfil e contexto da relação ficam visíveis ao administrador.
 7. Para cada vaga aberta, a plataforma separa potenciais candidatos de pessoas que provavelmente podem indicar alguém.
@@ -21,7 +21,11 @@ O administrador nunca recebe uma listagem da rede privada dos membros.
 - Cadastro persistente de vagas.
 - Convites assinados, expiráveis e vinculáveis a e-mail.
 - Onboarding e sessão privada para cada membro.
-- Sessão remota temporária do LinkedIn para administradores e membros, sem instalação e sem armazenar credenciais.
+- Conector de navegador (extensão Chrome/Edge) para administradores e membros, sem credenciais na aplicação.
+- Classificador heurístico de área de atuação (12 áreas) a partir de cargo e stack, com override manual.
+- Edição de contatos na própria tela: contexto profissional, telefone e área.
+- Insights agregados da rede gerados em segundo plano após cada sincronização.
+- Convites com ciclo completo: criar, revogar, excluir e regenerar link.
 - Ranking de oportunidades por aderência profissional.
 - Consentimento explícito por indicação.
 - Pipeline administrativo com status de acompanhamento.
@@ -107,7 +111,8 @@ flowchart LR
   A --> J[Vagas]
   A --> I[Convites]
   I --> M[Área privada do membro]
-  M --> L[Importação LinkedIn]
+  M --> L[Conector de navegador]
+  A --> L
   L --> P[(PostgreSQL)]
   J --> R[Motor de ranking]
   J --> Q[(Fila de inteligência)]
@@ -131,7 +136,9 @@ flowchart LR
 
 ## Orquestrador de inteligência
 
-O serviço web apenas cria workflows; o serviço `intelligence-worker` executa as tarefas em segundo plano com `npm run worker`. Os pipelines usam três especialistas: `job_analysis`, `profile_enrichment` e `match_rerank`. Cada handoff possui payload validado, orçamento de tokens, timeout, dependências e até três tentativas com backoff exponencial.
+O serviço web apenas cria workflows; o serviço `intelligence-worker` executa as tarefas em segundo plano com `npm run worker`. Os pipelines usam quatro especialistas: `job_analysis`, `profile_enrichment`, `match_rerank` e `network_insights`. Cada handoff possui payload validado, orçamento de tokens, timeout, dependências e até três tentativas com backoff exponencial.
+
+`network_insights` é disparada automaticamente ao fim de cada sincronização e resume a rede (composição por área, cobertura de contato, lacunas). O prompt recebe **apenas agregados** — nenhum nome ou dado pessoal — e há fallback determinístico quando não existe provedor configurado.
 
 O Gemini analisa descrições de vagas sem dados pessoais. O OpenRouter/DeepSeek faz o reranking pseudonimizado e a pesquisa pública continua exigindo provedores com retenção zero. O painel **Admin → Inteligência** mostra progresso, tokens, orçamento estimado e falhas definitivas.
 
@@ -156,4 +163,10 @@ O matching de conectores reconhece sinais profissionais explícitos de formaçã
 
 Esses sinais têm contribuição limitada, são exibidos com evidência e confiança e influenciam somente a hipótese de que alguém possa conhecer bons candidatos. Não elevam o fit de candidato, não substituem avaliação profissional e a ausência de pedigree reconhecido nunca reduz a pontuação.
 
-Google Contacts usa OAuth e permanece desativado até que o proprietário configure `GOOGLE_OAUTH_CLIENT_ID` e `GOOGLE_OAUTH_CLIENT_SECRET`. Nenhum dado fictício é exibido quando a integração não está configurada.
+### Classificação de área
+
+`inferArea` deriva a área de atuação (Engenharia de Software, Dados & IA/ML, Produto, Design, Growth & Marketing, Vendas & GTM, Finanças & Investimentos, RH & Talent, Consultoria & Estratégia, Jurídico, Operações, Academia & Pesquisa) a partir do cargo e da stack declarados. É determinística, versionada por regra e explicável — sem LLM. Quando a área do contato coincide com a área da vaga, o conector recebe um acréscimo limitado e a evidência aparece na recomendação. O administrador pode sobrepor a área manualmente e o override sempre vence a inferência.
+
+### Google Contacts
+
+A importação do Google é **implementação futura**: o cartão aparece desabilitado e o endpoint responde `503` a menos que `GOOGLE_IMPORT_ENABLED=true`. Nenhum dado fictício é exibido quando a integração não está configurada.

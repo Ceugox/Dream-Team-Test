@@ -43,7 +43,7 @@ test("explainMatch only cites evidence actually present on the person", () => {
       reciprocity: null, frequency: null, recency: null, contactSignal: null,
     },
   });
-  const fit: CandidateFitResult = { score: 0.9, skillsFit: 1, roleFit: 1, seniorityFit: 1, industryFit: 1, locationFit: 1 };
+  const fit: CandidateFitResult = { score: 0.9, skillsFit: 1, roleFit: 1, seniorityFit: 1, industryFit: 1, locationFit: 1, areaFit: 1, evidenceCoverage: 1, measured: ["skills","role","seniority","industry","location","area"] };
   const evidence = explainMatch(person, job, fit);
   expect(evidence.some((e) => e.toLowerCase().includes("python"))).toBe(true);
   expect(evidence.some((e) => e.toLowerCase().includes("sao paulo"))).toBe(true);
@@ -63,7 +63,7 @@ test("explainMatch does not fabricate a java skill match for a javascript-only c
     skills: ["javascript"],
   });
   // skillsFit is forced > 0 so the evidence branch runs, isolating the word-boundary check itself.
-  const fit: CandidateFitResult = { score: 0.5, skillsFit: 1, roleFit: 0, seniorityFit: 0.5, industryFit: 0.5, locationFit: 0.5 };
+  const fit: CandidateFitResult = { score: 0.5, skillsFit: 1, roleFit: 0, seniorityFit: 0.5, industryFit: 0.5, locationFit: 0.5, areaFit: 0, evidenceCoverage: .6, measured: ["skills"] };
   const evidence = explainMatch(person, javaJob, fit);
   expect(evidence.some((e) => /\bjava\b/i.test(e))).toBe(false);
 });

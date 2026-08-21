@@ -1,39 +1,8 @@
 import { JobProfileSchema, type JobProfile } from "../domain/job";
-
-const SENIORITY_KEYWORDS: Array<[RegExp, JobProfile["seniority"]]> = [
-  [/\b(staff|principal)\b/i, "staff"],
-  [/\bsenior\b/i, "senior"],
-  [/\bpleno\b/i, "pleno"],
-  [/\bjunior\b/i, "junior"],
-];
-
-const KNOWN_SKILLS = [
-  "python",
-  "kotlin",
-  "java",
-  "go",
-  "golang",
-  "typescript",
-  "javascript",
-  "react",
-  "aws",
-  "gcp",
-  "azure",
-  "kafka",
-  "distributed systems",
-  "kubernetes",
-  "sql",
-];
-
-const INDUSTRY_KEYWORDS = ["fintech", "healthtech", "edtech", "e-commerce", "logistics", "payments", "banking"];
-
-function containsSkillToken(text: string, skill: string): boolean {
-  const escaped = skill.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`\\b${escaped}\\b`, "i").test(text);
-}
+import { detectIndustry, detectSeniority, extractSkills } from "./vocabulary";
 
 function extractSkillsFromLine(line: string): string[] {
-  return KNOWN_SKILLS.filter((skill) => containsSkillToken(line, skill));
+  return extractSkills(line);
 }
 
 export function parseJobDescription(rawText: string, titleHint?: string): JobProfile {
@@ -58,13 +27,8 @@ export function parseJobDescription(rawText: string, titleHint?: string): JobPro
     title = titleHint || "Unknown role";
   }
 
-  let seniority: JobProfile["seniority"] = "unknown";
-  for (const [pattern, level] of SENIORITY_KEYWORDS) {
-    if (pattern.test(rawText)) {
-      seniority = level;
-      break;
-    }
-  }
+  // O título entra junto: "Engenheiro de Software Sênior" costuma ser o único lugar com a senioridade.
+  const seniority = detectSeniority(`${titleHint ?? ""}\n${rawText}`);
 
   const requiredLine = lines.find((l) => /^required:/i.test(l)) ?? "";
   const preferredLine = lines.find((l) => /^nice to have:/i.test(l)) ?? "";
@@ -77,8 +41,7 @@ export function parseJobDescription(rawText: string, titleHint?: string): JobPro
   );
   const preferredSkills = linePreferredSkills.filter((s) => !requiredSkills.includes(s));
 
-  const lower = rawText.toLowerCase();
-  const industry = INDUSTRY_KEYWORDS.find((kw) => lower.includes(kw)) ?? null;
+  const industry = detectIndustry(rawText);
 
   return JobProfileSchema.parse({
     title,

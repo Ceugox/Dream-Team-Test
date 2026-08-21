@@ -27,11 +27,13 @@ export function computeConfidence(person: Person): ConfidenceData {
 
 export function rankCandidates(
   people: Person[],
-  job: JobProfile
+  job: JobProfile,
+  // O classificador de área mora na camada de plataforma; quem chama injeta o alinhamento.
+  options: { sameArea?: (person: Person) => boolean | null } = {}
 ): Array<Person & { referralEvidence: string[] }> {
   return people
     .map((person) => {
-      const fit = computeCandidateFit(person, job);
+      const fit = computeCandidateFit(person, job, { sameArea: options.sameArea?.(person) ?? null });
       const relationshipScore = computeRelationshipScore(person.relationship);
       const confidence = computeConfidence(person);
       const referralScore = computeReferralScore(fit.score, relationshipScore, confidence.overall);

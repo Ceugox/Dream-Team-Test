@@ -86,3 +86,16 @@ export function inferArea(input: { headline: string | null; profileContext: stri
   const confidence = Math.min(0.95, 0.5 + best.score * 0.15 + (input.profileContext?.trim() ? 0.05 : 0));
   return { area: best.rule.area, label: best.rule.label, confidence, matched: best.tags, ruleVersion: AREA_RULE_VERSION };
 }
+
+/**
+ * Área da vaga. O cargo é o sinal limpo: descrição de vaga cita times e ferramentas de outras
+ * áreas ("roadmap com o time de engenharia", "analytics") e desviava a classificação — uma vaga
+ * de Product Manager caía em Dados & IA e perdia o candidato certo. A descrição só decide
+ * quando o cargo, sozinho, é inconclusivo.
+ */
+export function inferJobArea(job: { title: string; description?: string | null; requiredSkills?: string[]; preferredSkills?: string[] }): AreaCode | null {
+  const fromTitle = inferArea({ headline: job.title, profileContext: null }).area;
+  if (fromTitle) return fromTitle;
+  const context = [job.description, job.requiredSkills?.join(" "), job.preferredSkills?.join(" ")].filter(Boolean).join(" · ");
+  return inferArea({ headline: job.title, profileContext: context || null }).area;
+}

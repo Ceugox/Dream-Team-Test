@@ -169,6 +169,19 @@ Esses sinais têm contribuição limitada, são exibidos com evidência e confia
 
 `inferArea` deriva a área de atuação (Engenharia de Software, Dados & IA/ML, Produto, Design, Growth & Marketing, Vendas & GTM, Finanças & Investimentos, RH & Talent, Consultoria & Estratégia, Jurídico, Operações, Academia & Pesquisa) a partir do cargo e da stack declarados. É determinística, versionada por regra e explicável — sem LLM. Quando a área do contato coincide com a área da vaga, o conector recebe um acréscimo limitado e a evidência aparece na recomendação. O administrador pode sobrepor a área manualmente e o override sempre vence a inferência.
 
+A área da **vaga** sai de `inferJobArea`, que decide pelo cargo e só recorre à descrição quando o cargo é inconclusivo: descrição de vaga cita times e ferramentas de outras áreas ("roadmap com o time de engenharia", "analytics") e desviava a classificação.
+
+### Fit de candidato por evidência
+
+`computeCandidateFit` pontua seis dimensões — competências (.35), área (.30), cargo (.25), senioridade (.15), setor (.15) e localização (.10) — mas **só entra na conta a dimensão com evidência dos dois lados**, e o score é a média ponderada apenas do que foi medido. Dimensão desconhecida não vale meio ponto: ela sai da conta.
+
+Isso importa porque o conector do LinkedIn coleta nome e headline, nunca localização. No modelo antigo, setor e localização desconhecidos somavam 0,125 contra um limiar de 0,14 — qualquer pessoa entrava em qualquer vaga, e "potenciais candidatos" era, na prática, a rede inteira. Complementos da calibragem:
+
+- **Senioridade igual, sozinha, não qualifica**: é exigido pelo menos um sinal de substância (competências, cargo ou área).
+- **Palavra genérica de hierarquia não conta como cargo**: "Analista" casava com Analista Financeiro, de Marketing e de Suporte igualmente (`meaningfulTitleTerms`).
+- **`evidenceCoverage`** informa quanto do peso total foi medido, e a confiança da recomendação acompanha esse número: pouca informação, pouca confiança.
+- **Vocabulário em PT-BR** (`src/lib/matching/vocabulary.ts`): senioridade com acento (`/\bs[êe]nior\b/` — `senior` não casa "Sênior"), skills além de tecnologia (finanças, RH, design, growth) e setores em português. O limiar de candidato é `CANDIDATE_FIT_THRESHOLD`.
+
 ### Google Contacts
 
 A importação do Google é **implementação futura**: o cartão aparece desabilitado e o endpoint responde `503` a menos que `GOOGLE_IMPORT_ENABLED=true`. Nenhum dado fictício é exibido quando a integração não está configurada.

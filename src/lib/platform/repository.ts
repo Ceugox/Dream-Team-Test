@@ -3,7 +3,7 @@ import { z } from "zod";
 import { createInviteToken, hashInviteToken } from "./auth";
 import { DEFAULT_ORGANIZATION_ID, query, transaction } from "./db";
 import type { AdminNetworkContact, AdminNetworkInsight, AdminSourceConnection, Administrator, Invitation, Job, JobIntelligence, JobStatus, Member, NetworkRecommendation, OutreachRequest, OutreachStatus, RecommendationKind, Referral, ReferralStatus } from "./types";
-import { AREA_CODES, areaLabel, inferArea } from "./areaClassifier";
+import { AREA_CODES, areaLabel, inferArea, inferJobArea } from "./areaClassifier";
 import { buildWhatsAppUrl, normalizePhone } from "./whatsapp";
 import { createPerson, type Person } from "@/lib/domain/person";
 import { parseHeadline } from "@/lib/enrichment/headline";
@@ -180,7 +180,15 @@ export async function listRankedOpportunities(memberId: string): Promise<RankedO
     const parsed = parseHeadline(contact.headline);
     return createPerson({id:`linkedin:${contact.linkedinUrl}`,name:contact.name,headline:contact.headline,linkedinUrl:contact.linkedinUrl,currentRole:parsed.role,currentCompany:parsed.company,sources:["linkedin"]});
   });
-  return jobs.filter(job=>job.status==="open").map(job=>({job,candidates:rankCandidates(people,parseJobDescription(`${job.title} - ${job.company} - ${job.location??"Remoto"}\n${job.description}`,job.title)).slice(0,5)}));
+  // Mesma inferência de área usada do lado do admin, injetada aqui para a camada de matching
+  // continuar sem depender da plataforma.
+  const areaByPerson=new Map(people.map(person=>[person.id,inferArea({headline:person.headline,profileContext:null}).area]));
+  return jobs.filter(job=>job.status==="open").map(job=>{
+    const profile=parseJobDescription(`${job.title} - ${job.company} - ${job.location??"Remoto"}\n${job.description}`,job.title);
+    const jobArea=inferJobArea(profile);
+    const sameArea=(person:{id:string})=>{const area=areaByPerson.get(person.id);return jobArea&&area?jobArea===area:null;};
+    return {job,candidates:rankCandidates(people,profile,{sameArea}).slice(0,5)};
+  });
 }
 
 export async function updateGoogleSource(memberId: string, source: "contacts" | "calendar"): Promise<void> {

@@ -1,4 +1,6 @@
-export type Seniority = "junior" | "pleno" | "senior" | "staff" | "unknown";
+import { INDUSTRY_KEYWORDS, detectSeniority, type Seniority } from "../matching/vocabulary";
+
+export type { Seniority };
 
 export interface ParsedHeadline {
   role: string | null;
@@ -6,24 +8,6 @@ export interface ParsedHeadline {
   seniority: Seniority;
   industryKeywords: string[];
 }
-
-const SENIORITY_KEYWORDS: Array<[RegExp, Seniority]> = [
-  [/\b(staff|principal|head of|distinguished)\b/i, "staff"],
-  [/\b(senior|sr\.?)\b/i, "senior"],
-  [/\b(pleno|mid-level)\b/i, "pleno"],
-  [/\b(junior|jr\.?|intern|estagiario)\b/i, "junior"],
-];
-
-const INDUSTRY_KEYWORDS = [
-  "fintech",
-  "healthtech",
-  "edtech",
-  "e-commerce",
-  "logistics",
-  "payments",
-  "banking",
-  "insurtech",
-];
 
 export function parseHeadline(headline: string | null): ParsedHeadline {
   if (!headline) {
@@ -34,13 +18,7 @@ export function parseHeadline(headline: string | null): ParsedHeadline {
   const role = beforeAt?.trim() || null;
   const company = afterAt?.trim() || null;
 
-  let seniority: Seniority = "unknown";
-  for (const [pattern, level] of SENIORITY_KEYWORDS) {
-    if (pattern.test(headline)) {
-      seniority = level;
-      break;
-    }
-  }
+  const seniority = detectSeniority(headline);
 
   const lower = headline.toLowerCase();
   const industryKeywords = INDUSTRY_KEYWORDS.filter((kw) => lower.includes(kw));

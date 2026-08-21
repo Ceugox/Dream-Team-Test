@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { JobProfile } from "../domain/job";
 import { normalizePhone } from "./whatsapp";
 import { inferNetworkCapital } from "./networkCapital";
-import { areaLabel, inferArea } from "./areaClassifier";
+import { areaLabel, inferArea, inferJobArea } from "./areaClassifier";
 
 const TextOrList = z.union([z.string().max(4000),z.array(z.string().max(500)).max(30)]);
 
@@ -48,8 +48,7 @@ export function scoreConnectorFit(contact: { headline:string|null; profileContex
   if (roleTerms.some(term=>text.includes(term))) { score += .12; evidence.push("Proximidade com o núcleo da vaga"); }
   const contactAreaCode=contact.areaOverride??inferArea({headline:contact.headline,profileContext:contact.profileContext??null}).area;
   if(contactAreaCode){
-    const jobArea=inferArea({headline:job.title,profileContext:[job.description,job.requiredSkills.join(" "),job.preferredSkills.join(" ")].filter(Boolean).join(" · ")});
-    if(jobArea.area===contactAreaCode){score+=.18;evidence.push(`Mesma área da vaga (${areaLabel(contactAreaCode)})`);}
+    if(inferJobArea(job)===contactAreaCode){score+=.18;evidence.push(`Mesma área da vaga (${areaLabel(contactAreaCode)})`);}
   }
   const capital=contact.networkCapitalScore??inferNetworkCapital({headline:contact.headline,profileContext:contact.profileContext??null}).score;
   if(capital>0){score+=Math.min(.32,capital*.32);evidence.push(...(contact.networkCapitalEvidence??inferNetworkCapital({headline:contact.headline,profileContext:contact.profileContext??null}).evidence));}

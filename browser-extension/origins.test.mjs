@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isTrustedAppOrigin, TRUSTED_APP_ORIGINS } from "./origins.js";
+import { isTrustedAppOrigin, requiresUserConfirmation, TRUSTED_APP_ORIGINS } from "./origins.js";
 
 describe("isTrustedAppOrigin", () => {
   it("aceita a origem de produção", () => {
@@ -33,6 +33,15 @@ describe("isTrustedAppOrigin", () => {
     expect(isTrustedAppOrigin("")).toBe(false);
     expect(isTrustedAppOrigin("null")).toBe(false);
     expect(isTrustedAppOrigin("not an origin")).toBe(false);
+  });
+
+  it("exige confirmação do usuário só nas origens de desenvolvimento", () => {
+    // A 3000 é compartilhada com qualquer projeto local, então lá a coleta pede confirmação.
+    expect(requiresUserConfirmation("http://localhost:3000")).toBe(true);
+    expect(requiresUserConfirmation("http://127.0.0.1:3000")).toBe(true);
+    // Em produção o fluxo é o do próprio app: confirmar de novo seria só atrito.
+    expect(requiresUserConfirmation("https://referral-copilot-mvp-production.up.railway.app")).toBe(false);
+    expect(requiresUserConfirmation("https://evil.example.com")).toBe(false);
   });
 
   it("mantém a lista de origens explícita e enxuta", () => {

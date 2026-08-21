@@ -199,7 +199,9 @@ async function main() {
       }
     }
   }
-  console.log(`Indicações criadas: ${referralsCreated}`);
+  // "registradas" e não "criadas": submitReferral faz upsert, então numa segunda execução
+  // o número se repete sem duplicar nada no banco.
+  console.log(`Indicações registradas: ${referralsCreated}`);
 
   // 9. Espalha as indicações pelo funil, para o painel não ficar todo em "submitted".
   //    As dos destaques ficam propositalmente nos estágios de avanço.

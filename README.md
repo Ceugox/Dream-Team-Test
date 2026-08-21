@@ -2,6 +2,13 @@
 
 Plataforma privada de indicações profissionais. O administrador publica vagas e convida a equipe; cada membro conecta a própria rede, recebe sugestões de pessoas aderentes e decide individualmente o que compartilhar.
 
+## Acesso para avaliação
+
+- **Aplicação em produção:** <https://referral-copilot-mvp-production.up.railway.app>
+- A **chave de administrador** e os **links de convite** dos avaliadores são enviados por canal privado (não ficam neste repositório).
+- Fluxo sugerido: entrar como administrador → instalar o conector (zip servido pela própria aplicação em `/referral-copilot-linkedin-connector.zip`) → conectar a rede → criar uma vaga e ver as sugestões imediatas.
+- **Recomendação:** use o Google Chrome e desative extensões de bloqueio (ad-block e similares) durante a extração — elas podem interferir na coleta.
+
 ## Fluxo do produto
 
 1. Cada administrador entra com identidade própria, conecta sua rede e publica as vagas prioritárias.
@@ -105,6 +112,8 @@ Administradores e membros usam a mesma jornada: o botão **Conectar pelo conecto
 
 Nenhuma senha ou cookie passa pela aplicação: o login acontece no navegador do próprio usuário, e a plataforma recebe apenas nome, headline e URL pública de cada conexão. A importação do Google Contacts é implementação futura e está desativada.
 
+Recomendação de ambiente: Google Chrome com extensões de bloqueio (ad-block e similares) desativadas durante a extração — bloqueadores podem esconder cards da lista de conexões e reduzir a completude da coleta.
+
 ## Arquitetura
 
 ```mermaid
@@ -138,11 +147,19 @@ flowchart LR
 
 ## Orquestrador de inteligência
 
-O serviço web apenas cria workflows; o serviço `intelligence-worker` executa as tarefas em segundo plano com `npm run worker`. Os pipelines usam quatro especialistas: `job_analysis`, `profile_enrichment`, `match_rerank` e `network_insights`. Cada handoff possui payload validado, orçamento de tokens, timeout, dependências e até três tentativas com backoff exponencial.
+Ao criar uma vaga aberta, o ranking determinístico é calculado e **gravado em lote no próprio request** — a vaga já abre populada, sem depender da fila. O serviço web apenas cria workflows; o serviço `intelligence-worker` executa as tarefas em segundo plano com `npm run worker`. Os pipelines usam quatro especialistas: `job_analysis`, `profile_enrichment`, `match_rerank` e `network_insights`. Cada handoff possui payload validado, orçamento de tokens, timeout, dependências e até três tentativas com backoff exponencial. Se a inferência falhar, o ranking determinístico permanece — a vaga nunca fica sem recomendações por falha de LLM.
 
 `network_insights` é disparada automaticamente ao fim de cada sincronização e resume a rede (composição por área, cobertura de contato, lacunas). O prompt recebe **apenas agregados** — nenhum nome ou dado pessoal — e há fallback determinístico quando não existe provedor configurado.
 
 O Gemini analisa descrições de vagas sem dados pessoais. O OpenRouter/DeepSeek faz o reranking pseudonimizado e a pesquisa pública continua exigindo provedores com retenção zero. O painel **Admin → Inteligência** mostra progresso, tokens, orçamento estimado e falhas definitivas.
+
+## Scripts operacionais
+
+Rodam da máquina local contra o Postgres do Railway (CLI logado e projeto linkado); resolvem a URL pública do banco sozinhos:
+
+- `node scripts/seed-demo-railway.mjs` — popula vagas, membros, indicações e funil de demonstração com as conexões reais já sincronizadas (idempotente).
+- `node scripts/create-evaluator-invites.mjs [n]` — cria `n` convites de membro sem e-mail (uso único, 7 dias) e imprime as URLs.
+- `node scripts/diagnose-empty-jobs-railway.mjs` — read-only: para cada vaga aberta sem recomendações, mostra o que o parser extraiu, os maiores scores da rede contra os limiares e o estado da fila.
 
 ## Comandos de qualidade
 

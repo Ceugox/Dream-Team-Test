@@ -1,15 +1,23 @@
 const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 async function isSyncActive() {
-  const state = await chrome.storage.session.get(["rcSyncActive", "rcStartedAt"]);
-  return state.rcSyncActive && Date.now() - Number(state.rcStartedAt || 0) < 15 * 60 * 1000;
+  try {
+    const state = await chrome.storage.session.get(["rcSyncActive", "rcStartedAt"]);
+    return state.rcSyncActive && Date.now() - Number(state.rcStartedAt || 0) < 15 * 60 * 1000;
+  } catch (error) {
+    console.error("[referral-copilot] storage.session inacessível:", error);
+    return false;
+  }
 }
 
 function normalizeProfileUrl(value) {
   try {
+    // Usa a URL resolvida (a.href) e extrai só /in/<slug>: o LinkedIn adiciona
+    // sufixos como /in/<slug>/pt/ que precisam ser aparados para deduplicar.
     const url = new URL(value, location.origin);
-    if (url.hostname !== "www.linkedin.com" || !url.pathname.startsWith("/in/")) return null;
-    return `https://www.linkedin.com${url.pathname.replace(/\/$/, "")}`;
+    if (!/(^|\.)linkedin\.com$/.test(url.hostname)) return null;
+    const match = url.pathname.match(/^\/in\/([^/]+)/);
+    return match ? `https://www.linkedin.com/in/${match[1]}` : null;
   } catch { return null; }
 }
 
@@ -20,7 +28,7 @@ function cleanLines(value) {
 function collectVisibleConnections() {
   const contacts = new Map();
   for (const anchor of document.querySelectorAll('a[href*="/in/"]')) {
-    const linkedinUrl = normalizeProfileUrl(anchor.getAttribute("href") || "");
+    const linkedinUrl = normalizeProfileUrl(anchor.href || anchor.getAttribute("href") || "");
     if (!linkedinUrl || contacts.has(linkedinUrl)) continue;
     const card = anchor.closest("li") || anchor.closest("[data-view-name]") || anchor.parentElement?.parentElement;
     const lines = cleanLines(card?.textContent || anchor.textContent || "");
@@ -45,25 +53,56 @@ function showStatus(text) {
   banner.textContent = text;
 }
 
+function findScroller() {
+  // A lista de conexões é virtualizada dentro de um container com overflow próprio;
+  // os cards fora da viewport são removidos do DOM, então é preciso rolar ESSE
+  // container em passos pequenos e coletar a cada passo, antes que sumam.
+  let best = null;
+  for (const el of document.querySelectorAll("main, main *")) {
+    const style = getComputedStyle(el);
+    if (!/auto|scroll/.test(style.overflowY)) continue;
+    if (el.scrollHeight <= el.clientHeight + 50) continue;
+    if (!best || el.scrollHeight > best.scrollHeight) best = el;
+  }
+  return best;
+}
+
 async function scrape() {
   if (!(await isSyncActive())) return;
   showStatus("Referral Copilot está mapeando sua rede…");
   const all = new Map();
   let stableRounds = 0;
-  for (let round = 0; round < 40 && stableRounds < 5; round++) {
+  // A lista é virtualizada (~10 cards no DOM por vez): passos pequenos coletando
+  // a cada passo acompanham a reciclagem sem pular ninguém. Validado no console.
+  for (let round = 0; round < 400 && stableRounds < 15; round++) {
     const before = all.size;
     for (const contact of collectVisibleConnections()) all.set(contact.linkedinUrl, contact);
-    stableRounds = all.size === before ? stableRounds + 1 : 0;
+    stableRounds = all.size > before ? 0 : stableRounds + 1;
     showStatus(`${all.size} conexões encontradas. Continue nesta aba…`);
     chrome.runtime.sendMessage({ type: "rc:linkedin-sync-progress", count: all.size }).catch(() => undefined);
-    const more = [...document.querySelectorAll("button")].find(button => /exibir mais|show more|carregar mais|load more/i.test(button.textContent || ""));
-    if (more && !more.disabled) more.click();
-    window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "smooth" });
-    await wait(1200);
+    // Re-detecta o scroller a cada passo (o container só existe depois da lista
+    // montar) e rola tanto ele quanto o window, cobrindo os dois layouts.
+    const target = findScroller() ?? document.scrollingElement ?? document.documentElement;
+    const atBottom = target.scrollTop + target.clientHeight >= target.scrollHeight - 8;
+    if (atBottom) {
+      // No fundo, oscila para forçar o IntersectionObserver a paginar o próximo lote.
+      target.scrollTop -= 400;
+    } else {
+      target.scrollTop += 350;
+    }
+    window.scrollBy(0, atBottom ? -400 : 350);
+    if (round % 10 === 0) {
+      console.log(`[referral-copilot] #${round} unicos=${all.size} scroller=${target.tagName} top=${Math.round(target.scrollTop)}/${target.scrollHeight} bottom=${atBottom}`);
+    }
+    await wait(500);
   }
+  console.log(`[referral-copilot] coleta finalizada: ${all.size} conexões`);
   const contacts = [...all.values()];
   showStatus(`${contacts.length} conexões prontas. Voltando ao Referral Copilot…`);
   await chrome.runtime.sendMessage({ type: "rc:linkedin-sync-complete", contacts });
 }
 
-scrape().catch(() => chrome.runtime.sendMessage({ type: "rc:linkedin-sync-error", message: "A coleta foi interrompida. Abra sua rede e tente novamente." }));
+scrape().catch((error) => {
+  console.error("[referral-copilot] coleta interrompida:", error);
+  chrome.runtime.sendMessage({ type: "rc:linkedin-sync-error", message: "A coleta foi interrompida. Abra sua rede e tente novamente." });
+});

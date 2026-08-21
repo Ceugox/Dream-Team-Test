@@ -1,5 +1,9 @@
 const CONNECTIONS_URL = "https://www.linkedin.com/mynetwork/invite-connect/connections/";
 
+// storage.session é inacessível a content scripts por padrão; sem isso o scraper
+// falha na primeira leitura e a aba fecha na hora com sync-error.
+chrome.storage.session.setAccessLevel({ accessLevel: "TRUSTED_AND_UNTRUSTED_CONTEXTS" }).catch(() => undefined);
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === "rc:start-linkedin-sync" && sender.tab?.id) {
     startLinkedInSync(sender.tab.id)

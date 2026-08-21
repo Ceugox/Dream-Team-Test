@@ -52,8 +52,63 @@ describe("admin matching",()=>{
     ];
     const candidatos=buildAdminRecommendations(job,contacts).filter(item=>item.kind==="candidate_fit");
     expect(candidatos).toHaveLength(1);
-    // Empate de score: fica a cópia com telefone, que já está pronta para outreach.
+    // Fica a cópia com telefone, que já está pronta para outreach.
     expect(candidatos[0].contactId).toBe("do-lucas");
+  });
+
+  it("mantém a cópia com telefone mesmo quando a outra pontua mais",()=>{
+    // O card serve para disparar WhatsApp: ficar com a cópia mais bem pontuada porém sem
+    // telefone tirava da tela um contato que a rede já tinha como acionável.
+    const contacts:AdminNetworkContact[]=[
+      {...base,id:"sem-telefone",administratorId:"marcell",name:"Bia Souza",headline:"Staff Backend Engineer | TypeScript AWS | fintech",linkedinUrl:"https://www.linkedin.com/in/bia-souza",phone:null},
+      {...base,id:"com-telefone",administratorId:"lucas",name:"Bia Souza",headline:"Backend Engineer",linkedinUrl:"https://www.linkedin.com/in/bia-souza",phone:"5511988887777"},
+    ];
+    const candidatos=buildAdminRecommendations(job,contacts).filter(item=>item.kind==="candidate_fit");
+    expect(candidatos).toHaveLength(1);
+    expect(candidatos[0].contactId).toBe("com-telefone");
+  });
+
+  it("a cópia com outreach preparado vence, senão a duplicata volta",()=>{
+    // replaceJobRecommendations nunca apaga recomendação com outreach: se o ranking elegesse
+    // a outra cópia, a antiga sobreviveria ao lado dela e a pessoa reapareceria em dobro.
+    const contacts:AdminNetworkContact[]=[
+      {...base,id:"com-outreach",administratorId:"marcell",name:"Bia Souza",headline:"Backend Engineer",linkedinUrl:"https://www.linkedin.com/in/bia-souza",phone:"5511977776666"},
+      {...base,id:"melhor-score",administratorId:"lucas",name:"Bia Souza",headline:"Staff Backend Engineer | TypeScript AWS | fintech",linkedinUrl:"https://www.linkedin.com/in/bia-souza",phone:"5511988887777"},
+    ];
+    const candidatos=buildAdminRecommendations(job,contacts,{pinnedContactIds:new Set(["com-outreach"])}).filter(item=>item.kind==="candidate_fit");
+    expect(candidatos).toHaveLength(1);
+    expect(candidatos[0].contactId).toBe("com-outreach");
+  });
+
+  it("mesma pessoa com e sem URL do LinkedIn colapsa pela ponte do nome",()=>{
+    // Um admin sincroniza pelo LinkedIn (tem URL), outro traz do Google/manual (não tem).
+    const contacts:AdminNetworkContact[]=[
+      {...base,id:"do-linkedin",administratorId:"marcell",name:"Bia Souza",headline:"Staff Backend Engineer | TypeScript AWS | fintech",linkedinUrl:"https://www.linkedin.com/in/bia-souza"},
+      {...base,id:"do-google",administratorId:"lucas",name:"Bia Souza",headline:"Staff Backend Engineer | TypeScript AWS | fintech",linkedinUrl:null},
+    ];
+    const candidatos=buildAdminRecommendations(job,contacts).filter(item=>item.kind==="candidate_fit");
+    expect(candidatos).toHaveLength(1);
+  });
+
+  it("não usa a ponte do nome quando ele aponta para dois perfis distintos",()=>{
+    // Homônimo: dois perfis reais com o mesmo nome. O contato sem URL não pode ser
+    // atribuído a nenhum deles, então fica separado em vez de sumir dentro de um.
+    const contacts:AdminNetworkContact[]=[
+      {...base,id:"perfil-1",administratorId:"marcell",name:"Bia Souza",headline:"Staff Backend Engineer | TypeScript AWS | fintech",linkedinUrl:"https://www.linkedin.com/in/bia-souza-1"},
+      {...base,id:"perfil-2",administratorId:"lucas",name:"Bia Souza",headline:"Staff Backend Engineer | TypeScript AWS | fintech",linkedinUrl:"https://www.linkedin.com/in/bia-souza-2"},
+      {...base,id:"sem-url",administratorId:"lucas",name:"Bia Souza",headline:"Staff Backend Engineer | TypeScript AWS | fintech",linkedinUrl:null},
+    ];
+    const candidatos=buildAdminRecommendations(job,contacts).filter(item=>item.kind==="candidate_fit");
+    expect(candidatos).toHaveLength(3);
+  });
+
+  it("normaliza subdomínio de país, www e barra final na URL",()=>{
+    const contacts:AdminNetworkContact[]=[
+      {...base,id:"a",administratorId:"marcell",name:"Bia Souza",headline:"Staff Backend Engineer | TypeScript AWS | fintech",linkedinUrl:"https://br.linkedin.com/in/bia-souza"},
+      {...base,id:"b",administratorId:"lucas",name:"Bia Souza",headline:"Staff Backend Engineer | TypeScript AWS | fintech",linkedinUrl:"http://www.linkedin.com/in/bia-souza/?originalSubdomain=br"},
+    ];
+    const candidatos=buildAdminRecommendations(job,contacts).filter(item=>item.kind==="candidate_fit");
+    expect(candidatos).toHaveLength(1);
   });
 
   it("sem URL do LinkedIn, deduplica pelo nome normalizado",()=>{

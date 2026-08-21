@@ -14,26 +14,74 @@ export const CANDIDATE_FIT_THRESHOLD = 0.34;
 export const CONNECTOR_FIT_THRESHOLD = 0.35;
 
 // Identidade da pessoa através das redes: o mesmo perfil sincronizado por dois admins vira
-// duas linhas de contato (a unique do banco é por admin), então a vaga listava a pessoa em
-// dobro. URL do LinkedIn normalizada quando existe; sem URL, nome sem acentos/caixa.
-function personKey(contact: AdminNetworkContact): string {
-  if (contact.linkedinUrl) return `url:${contact.linkedinUrl.toLowerCase().replace(/^https?:\/\/(www\.)?/,"").replace(/[?#].*$/,"").replace(/\/+$/,"")}`;
-  return `nome:${contact.name.normalize("NFD").replace(/[̀-ͯ]/g,"").toLowerCase().replace(/\s+/g," ").trim()}`;
+// duas linhas de contato (a unique do banco é por admin), então a vaga listava a pessoa em dobro.
+// O slug de /in/ é a identidade forte: absorve http/https, www., subdomínio de país
+// (br.linkedin.com em perfil aberto pela busca), query string e barra final.
+function linkedinKey(url: string): string {
+  const clean=url.trim().toLowerCase().replace(/^https?:\/\//,"").replace(/[?#].*$/,"").replace(/\/+$/,"");
+  const slug=clean.match(/\/in\/([^/]+)/);
+  return slug?`li:${slug[1]}`:`url:${clean.replace(/^[a-z0-9-]+\.(?=linkedin\.com)/,"")}`;
 }
 
-export function buildAdminRecommendations(job: Job, contacts: AdminNetworkContact[]): AdminRecommendationDraft[] {
+/** Compara os critérios em ordem; o primeiro que diferir decide. */
+function isBetter(a: readonly number[], b: readonly number[]): boolean {
+  for(let i=0;i<a.length;i+=1)if(a[i]!==b[i])return a[i]>b[i];
+  return false;
+}
+
+function nameKey(name: string): string {
+  return name.normalize("NFD").replace(/[̀-ͯ]/g,"").toLowerCase().replace(/\s+/g," ").trim();
+}
+
+/**
+ * Junta as cópias da mesma pessoa vindas de redes diferentes. Duas fases porque as chaves
+ * não se conversam sozinhas: quem veio do LinkedIn tem URL e quem veio do Google/manual não,
+ * e sem a ponte por nome a mesma pessoa escaparia com uma chave de cada tipo. A ponte só vale
+ * quando o nome aponta para um único perfil — nome que bate com dois perfis distintos é
+ * homônimo até prova em contrário e cada um fica com sua chave.
+ */
+export function buildPersonKeyResolver(contacts: AdminNetworkContact[]): (contact: AdminNetworkContact) => string {
+  const keysByName=new Map<string,Set<string>>();
+  for(const contact of contacts){
+    if(!contact.linkedinUrl)continue;
+    const name=nameKey(contact.name);if(!name)continue;
+    const bucket=keysByName.get(name)??new Set<string>();bucket.add(linkedinKey(contact.linkedinUrl));keysByName.set(name,bucket);
+  }
+  return contact=>{
+    if(contact.linkedinUrl)return linkedinKey(contact.linkedinUrl);
+    const name=nameKey(contact.name);
+    const bridged=keysByName.get(name);
+    return bridged?.size===1?[...bridged][0]:`nome:${name}`;
+  };
+}
+
+export type BuildRecommendationsOptions = {
+  /**
+   * Contatos que já têm outreach preparado nesta vaga. Eles vencem a disputa porque
+   * `replaceJobRecommendations` se recusa a apagar recomendação com outreach: se o ranking
+   * elegesse a outra cópia, a antiga sobreviveria ao lado da nova e a duplicata voltaria
+   * justamente para quem já foi abordado.
+   */
+  pinnedContactIds?: ReadonlySet<string>;
+};
+
+export function buildAdminRecommendations(job: Job, contacts: AdminNetworkContact[], options: BuildRecommendationsOptions = {}): AdminRecommendationDraft[] {
   const profile=parseJobDescription(`${job.title} - ${job.company} - ${job.location??"Remoto"}\n${job.description}`,job.title);
   const jobArea=inferJobArea(profile);
+  const pinned=options.pinnedContactIds??new Set<string>();
+  const personKey=buildPersonKeyResolver(contacts);
   const drafts:AdminRecommendationDraft[]=[];
-  // Por (pessoa,kind) fica a cópia de maior score; empate prefere quem tem telefone (outreach imediato).
-  const bestByPerson=new Map<string,{index:number;score:number;hasPhone:boolean}>();
+  // Critério por (pessoa,kind), nesta ordem: outreach preparado, telefone, score. O telefone vem
+  // antes do score porque a ação principal do card é o WhatsApp — ficar com a cópia mais bem
+  // pontuada mas sem telefone tira da tela um contato que a rede tinha como acionável.
+  const bestByPerson=new Map<string,{index:number;rank:[number,number,number]}>();
   const keep=(draft:AdminRecommendationDraft,contact:AdminNetworkContact)=>{
     const key=`${personKey(contact)}|${draft.kind}`;
+    const rank:[number,number,number]=[pinned.has(contact.id)?1:0,contact.phone?1:0,draft.score];
     const current=bestByPerson.get(key);
-    const hasPhone=Boolean(contact.phone);
-    if(current&&(current.score>draft.score||(current.score===draft.score&&(current.hasPhone||!hasPhone))))return;
+    if(current&&!isBetter(rank,current.rank))return;
     if(current)drafts[current.index]=draft;else drafts.push(draft);
-    bestByPerson.set(key,{index:current?current.index:drafts.length-1,score:draft.score,hasPhone});
+    bestByPerson.set(key,{index:current?current.index:drafts.length-1,rank});
   };
   for (const contact of contacts) {
     const parsed=parseHeadline(contact.headline);

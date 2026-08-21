@@ -2,85 +2,92 @@
  * Remove recomendações duplicadas da mesma pessoa numa vaga.
  *
  * A rede coletiva tem uma linha de contato por admin, então o mesmo perfil sincronizado
- * por dois admins gerava duas recomendações por (vaga, kind). O gerador já deduplica
- * (adminMatching.personKey); este script limpa o que ficou gravado antes do fix.
+ * por dois admins gerava duas recomendações por (vaga, kind). O gerador já deduplica; este
+ * script limpa o que ficou gravado antes do fix.
  *
- * Critério de quem fica, por (organização, vaga, kind, pessoa):
- *   1. quem já tem outreach preparado (nunca é apagado, mesmo como duplicata);
- *   2. maior score; 3. quem tem telefone; 4. id (estável).
- * Identidade da pessoa: linkedin_url normalizada; sem URL, nome minúsculo sem espaços extras.
+ * A identidade da pessoa vem de `buildPersonKeyResolver`, a mesma função que o gerador usa —
+ * reimplementá-la em SQL fazia a limpeza divergir do gerador em acentos, nulos e subdomínio.
+ *
+ * Critério de quem fica, por (vaga, kind, pessoa): outreach preparado, telefone, score, id.
+ * Recomendação com outreach nunca é removida (outreach_requests.recommendation_id é CASCADE).
  *
  * Uso: DATABASE_URL=... node --import tsx scripts/dedupe-recommendations.ts [--audit|--apply]
  * Sem flag é dry-run (lista o que seria removido); --audit checa falsos positivos da chave.
  */
 import { query } from "../src/lib/platform/db";
+import { listAdminNetworkContacts } from "../src/lib/platform/repository";
+import { buildPersonKeyResolver } from "../src/lib/platform/adminMatching";
 
 if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL é obrigatória");
 const apply = process.argv.includes("--apply");
 const audit = process.argv.includes("--audit");
 
-const keyedCte = `
-  keyed AS (
-    SELECT r.id, r.organization_id, r.job_id, r.kind, r.score, c.name,
-      COALESCE(
-        'url:'||regexp_replace(regexp_replace(regexp_replace(lower(c.linkedin_url),'^https?://(www\\.)?',''),'[?#].*$',''),'/+$',''),
-        'nome:'||regexp_replace(lower(trim(c.name)),'\\s+',' ','g')
-      ) AS person,
-      (c.phone IS NOT NULL AND c.phone <> '') AS has_phone,
-      EXISTS(SELECT 1 FROM outreach_requests o WHERE o.recommendation_id=r.id) AS has_outreach
-    FROM network_recommendations r
-    JOIN admin_network_contacts c ON c.id=r.contact_id
-  ),
-  ranked AS (
-    SELECT id, name, job_id, kind, has_outreach, row_number() OVER (
-      PARTITION BY organization_id, job_id, kind, person
-      ORDER BY has_outreach DESC, score DESC, has_phone DESC, id
-    ) AS rn
-    FROM keyed
-  )`;
+const contacts = await listAdminNetworkContacts();
+const personKey = buildPersonKeyResolver(contacts);
+const byId = new Map(contacts.map(contact => [contact.id, contact]));
 
 if (audit) {
-  // Falso positivo = duas linhas de contato distintas colapsadas na mesma chave sem serem
-  // a mesma pessoa. O risco real é homônimo sem URL do LinkedIn, então listamos os grupos
-  // agrupados por nome cujas headlines divergem — o olho humano decide.
-  const grupos = await query<{ person: string; contatos: number; nomes: string[]; headlines: string[] }>(
-    `SELECT COALESCE(
-        'url:'||regexp_replace(regexp_replace(regexp_replace(lower(c.linkedin_url),'^https?://(www\\.)?',''),'[?#].*$',''),'/+$',''),
-        'nome:'||regexp_replace(lower(trim(c.name)),'\\s+',' ','g')
-      ) AS person,
-      count(DISTINCT c.id)::int AS contatos,
-      array_agg(DISTINCT c.name) AS nomes,
-      array_agg(DISTINCT COALESCE(c.headline,'(sem headline)')) AS headlines
-     FROM admin_network_contacts c
-     GROUP BY 1 HAVING count(DISTINCT c.id) > 1`);
+  // Falso positivo = duas linhas de contato distintas colapsadas na mesma chave sem serem a
+  // mesma pessoa. Só a chave por nome corre esse risco (URL é identidade forte), e o caso mais
+  // arriscado é o contato sem headline nenhuma, onde não sobra nada para confrontar.
+  const grupos = new Map<string, typeof contacts>();
+  for (const contact of contacts) {
+    const key = personKey(contact);
+    grupos.set(key, [...(grupos.get(key) ?? []), contact]);
+  }
+  const repetidos = [...grupos.entries()].filter(([, lista]) => lista.length > 1);
+  const porUrl = repetidos.filter(([key]) => !key.startsWith("nome:"));
+  const porNome = repetidos.filter(([key]) => key.startsWith("nome:"));
+  console.log(`Pessoas presentes em mais de uma rede: ${repetidos.length} (${porUrl.length} por URL do LinkedIn, ${porNome.length} só por nome).`);
 
-  const porUrl = grupos.filter(g => g.person.startsWith("url:"));
-  const porNome = grupos.filter(g => g.person.startsWith("nome:"));
-  console.log(`Pessoas presentes em mais de uma rede: ${grupos.length} (${porUrl.length} casadas por URL, ${porNome.length} só por nome).`);
-
-  const suspeitos = porNome.filter(g => g.headlines.length > 1);
-  if (!suspeitos.length) { console.log("Nenhum grupo casado por nome tem headlines divergentes: sem indício de homônimo."); process.exit(0); }
-  console.log(`\n${suspeitos.length} grupo(s) casado(s) só por nome com headlines divergentes (revisar):`);
-  for (const g of suspeitos) console.log(`  - ${g.nomes.join(" / ")}\n      ${g.headlines.join("\n      ")}`);
+  // headline nula conta como valor próprio: dois nulos não são prova de que é a mesma pessoa.
+  const suspeitos = porNome.filter(([, lista]) => new Set(lista.map(c => c.headline ?? "(sem headline)")).size > 1 || lista.every(c => !c.headline));
+  if (!suspeitos.length) { console.log("Nenhum grupo casado por nome é suspeito: sem indício de homônimo."); process.exit(0); }
+  console.log(`\n${suspeitos.length} grupo(s) casado(s) só por nome a revisar (headlines divergentes ou ausentes):`);
+  for (const [key, lista] of suspeitos) {
+    console.log(`  - ${key.replace(/^nome:/, "")}`);
+    for (const c of lista) console.log(`      [${c.id}] ${c.headline ?? "(sem headline)"}`);
+  }
   process.exit(0);
 }
 
-const dupes = await query<{ id: string; name: string; jobId: string; kind: string; hasOutreach: boolean }>(
-  `WITH ${keyedCte}
-   SELECT r.id, r.name, r.job_id AS "jobId", r.kind, r.has_outreach AS "hasOutreach"
-   FROM ranked r WHERE r.rn > 1 ORDER BY r.job_id, r.kind, r.name`);
+type Row = { id: string; jobId: string; contactId: string; kind: string; score: number; hasOutreach: boolean };
+const rows = await query<Row>(`SELECT r.id, r.job_id AS "jobId", r.contact_id AS "contactId", r.kind, r.score,
+    EXISTS(SELECT 1 FROM outreach_requests o WHERE o.recommendation_id=r.id) AS "hasOutreach"
+  FROM network_recommendations r ORDER BY r.id`);
 
-if (!dupes.length) { console.log("Nenhuma recomendação duplicada encontrada."); process.exit(0); }
+const rank = (row: Row): [number, number, number] => [row.hasOutreach ? 1 : 0, byId.get(row.contactId)?.phone ? 1 : 0, row.score];
+const isBetter = (a: readonly number[], b: readonly number[]) => {
+  for (let i = 0; i < a.length; i += 1) if (a[i] !== b[i]) return a[i] > b[i];
+  return false;
+};
 
-const preservadas = dupes.filter(d => d.hasOutreach);
-const removiveis = dupes.filter(d => !d.hasOutreach);
-console.log(`Duplicatas encontradas: ${dupes.length} (${removiveis.length} removíveis, ${preservadas.length} preservadas por terem outreach).`);
-for (const d of removiveis) console.log(`  - ${d.name} [${d.kind}] vaga ${d.jobId}`);
+const vencedor = new Map<string, Row>();
+const perdedores: Row[] = [];
+for (const row of rows) {
+  const contact = byId.get(row.contactId);
+  if (!contact) continue; // recomendação órfã: não é duplicata, fica como está.
+  const key = `${row.jobId}|${row.kind}|${personKey(contact)}`;
+  const atual = vencedor.get(key);
+  if (!atual) { vencedor.set(key, row); continue; }
+  if (isBetter(rank(row), rank(atual))) { vencedor.set(key, row); perdedores.push(atual); }
+  else perdedores.push(row);
+}
+
+const removiveis = perdedores.filter(row => !row.hasOutreach);
+const preservadas = perdedores.filter(row => row.hasOutreach);
+if (!perdedores.length) { console.log("Nenhuma recomendação duplicada encontrada."); process.exit(0); }
+
+console.log(`Duplicatas encontradas: ${perdedores.length} (${removiveis.length} removíveis, ${preservadas.length} preservadas por terem outreach).`);
+for (const row of removiveis) console.log(`  - ${byId.get(row.contactId)?.name ?? row.contactId} [${row.kind}] vaga ${row.jobId}`);
 
 if (!apply) { console.log("\nDry-run: nada foi removido. Rode com --apply para efetivar."); process.exit(0); }
 
-await query(
-  `WITH ${keyedCte}
-   DELETE FROM network_recommendations WHERE id IN (SELECT id FROM ranked WHERE rn > 1 AND NOT has_outreach)`);
-console.log(`Removidas ${removiveis.length} recomendações duplicadas.`);
+// Apaga por id e conta o que o banco realmente removeu: entre a leitura e o DELETE um
+// refreshAdminRecommendations concorrente pode ter mexido nas mesmas linhas.
+const apagadas = await query<{ id: string }>(
+  `DELETE FROM network_recommendations WHERE id = ANY($1::uuid[])
+     AND NOT EXISTS (SELECT 1 FROM outreach_requests o WHERE o.recommendation_id=network_recommendations.id)
+   RETURNING id`, [removiveis.map(row => row.id)]);
+console.log(`Removidas ${apagadas.length} recomendações duplicadas.`);
 process.exit(0);

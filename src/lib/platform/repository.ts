@@ -452,11 +452,23 @@ export async function replaceJobRecommendations(jobId: string, recommendations: 
   });
 }
 
+/**
+ * Contatos com outreach preparado nesta vaga. A deduplicação por pessoa precisa saber quem
+ * são: como o DELETE do replace nunca remove recomendação com outreach, eleger a outra cópia
+ * da mesma pessoa deixaria as duas na tela.
+ */
+async function listPinnedContactIds(jobId: string): Promise<Set<string>> {
+  const rows=await query<{contactId:string}>(`SELECT DISTINCT r.contact_id AS "contactId"
+    FROM network_recommendations r JOIN outreach_requests o ON o.recommendation_id=r.id
+    WHERE r.job_id=$1 AND r.organization_id=$2`,[jobId,orgId]);
+  return new Set(rows.map(row=>row.contactId));
+}
+
 // Ranking determinístico puro, sem LLM: garante que a vaga nunca nasce vazia. A fila
 // refina depois com o rerank, que faz upsert por (job_id,contact_id,kind) e não apaga nada.
 export async function seedJobRecommendations(jobId: string): Promise<number> {
   const job=await getJob(jobId);if(!job||job.status!=="open")return 0;
-  const recommendations=buildAdminRecommendations(job,await listAdminNetworkContacts());
+  const recommendations=buildAdminRecommendations(job,await listAdminNetworkContacts(),{pinnedContactIds:await listPinnedContactIds(jobId)});
   await replaceJobRecommendations(jobId,recommendations);
   return recommendations.length;
 }
@@ -467,7 +479,7 @@ export async function refreshAdminRecommendations(jobId: string, signal?: AbortS
   // administradores dela (a UI chama isso de "rede coletiva"). O GET de /api/admin/network é
   // que é por dono, porque lá o admin edita os contatos dele. Não unificar sem decidir o produto.
   const contacts=await listAdminNetworkContacts();
-  let recommendations=buildAdminRecommendations(job,contacts);
+  let recommendations=buildAdminRecommendations(job,contacts,{pinnedContactIds:await listPinnedContactIds(jobId)});
   if(isInferenceConfigured())try{
     const intelligence=await getOrCreateJobIntelligence(job,signal);
     if(intelligence&&recommendations.length){
